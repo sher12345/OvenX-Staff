@@ -21,7 +21,7 @@
     .emoji { font-size:28px; }
   </style>
 
-  <!-- WebAuthn library - triggers the fingerprint / face ID prompt -->
+  <!-- WebAuthn library - triggers biometric prompt -->
   <script src="https://unpkg.com/@simplewebauthn/browser@9/dist/bundle/index.umd.min.js"></script>
 </head>
 <body>
@@ -29,9 +29,9 @@
 <header>OvenX Staff Attendance 🔥</header>
 
 <div class="section" id="loginSection">
-  <h2>Employee Login <span class="emoji">👤</span></h2>
+  <h2>Employee Portal <span class="emoji">👤</span></h2>
   <input type="text" id="empName" placeholder="Enter Your Name">
-  <button id="registerBtn">Register Fingerprint</button>
+  <button id="registerBtn">Register Fingerprint (First Time)</button>
   <button id="loginBtn">Login with Fingerprint</button>
 </div>
 
@@ -73,7 +73,7 @@
 
   let currentUser = null;
 
-  // Location check
+  // Location check (GPS approx for restaurant WiFi)
   const isAtRestaurant = async () => {
     if (!navigator.geolocation) return false;
     return new Promise(resolve => {
@@ -91,13 +91,21 @@
     });
   };
 
-  // Register with real fingerprint prompt
+  // First time: Register fingerprint
   document.getElementById('registerBtn').onclick = async () => {
     const name = document.getElementById('empName').value.trim();
     if (!name) return alert("Enter your name!");
 
     try {
-      // Simple challenge (in production → generate on server / edge function)
+      // Check if already exists
+      const { data: pending } = await supabase.from('pending_registrations').select().eq('name', name).single();
+      const { data: user } = await supabase.from('users').select().eq('name', name).single();
+
+      if (pending || user) {
+        return alert(`"${name}" is already registered or waiting for approval.\n\nIf pending → ask manager.\nIf approved → use Login button.`);
+      }
+
+      // Simple random challenge (demo only - production should use server)
       const challenge = crypto.getRandomValues(new Uint8Array(32));
 
       const options = {
@@ -108,15 +116,15 @@
           name,
           displayName: name
         },
-        pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
         authenticatorSelection: { userVerification: "required" },
         timeout: 60000
       };
 
-      // This line opens the fingerprint / face ID prompt on phone
+      // This should open the fingerprint / face ID / PIN prompt
       const credential = await SimpleWebAuthnBrowser.startRegistration(options);
 
-      // Send to Supabase pending table
+      // Store in pending for approval
       const { error } = await supabase.from('pending_registrations').insert({
         name,
         credential_id: credential.id,
@@ -126,14 +134,16 @@
 
       if (error) throw error;
 
-      alert("Fingerprint successfully registered! Waiting for manager approval.");
+      alert("Fingerprint registered successfully!\nNow ask manager to approve your account in the dashboard.");
     } catch (err) {
       if (err.name === 'NotAllowedError') {
-        alert("Fingerprint permission denied. Please allow biometrics when prompted.");
+        alert("Permission denied.\nPlease allow fingerprint/face ID when prompted by your phone.");
+      } else if (err.message?.includes('duplicate key')) {
+        alert(`"${name}" is already registered.\nUse Login button if approved, or ask manager.`);
       } else {
         alert("Registration failed: " + (err.message || "Unknown error"));
       }
-      console.error(err);
+      console.error("Registration error:", err);
     }
   };
 
@@ -143,77 +153,65 @@
     if (!name) return alert("Enter your name!");
 
     try {
-      // Get stored credential from pending or users (after approval)
-      const { data, error: fetchErr } = await supabase.from('pending_registrations')
-        .select('credential_id, public_key, sign_count')
-        .eq('name', name)
-        .single();
-
-      if (fetchErr || !data) {
-        // Check users table if already approved
-        const { data: approved } = await supabase.from('users').select('*').eq('name', name).single();
-        if (approved) {
-          currentUser = approved;
-          document.getElementById('loginSection').style.display = 'none';
-          document.getElementById('attendanceSection').style.display = 'block';
-          document.getElementById('welcomeMsg').innerText = `Welcome ${name}! 🙌`;
-          updateStatus();
-          return alert("Already approved — logged in!");
-        }
-        throw new Error("No registration found or not approved yet.");
+      // Check if approved (in users table)
+      const { data: user, error: userErr } = await supabase.from('users').select('*').eq('name', name).single();
+      if (userErr || !user) {
+        return alert("Account not approved yet or not found.\nRegister first or ask manager to approve.");
       }
 
+      currentUser = user;
+
+      // Simple challenge (demo)
       const challenge = crypto.getRandomValues(new Uint8Array(32));
 
       const options = {
         challenge,
-        allowCredentials: [{ id: new TextEncoder().encode(data.credential_id), type: "public-key" }],
+        allowCredentials: [{ type: "public-key", id: new TextEncoder().encode(user.credential_id || '') }],
         userVerification: "required"
       };
 
-      // This opens the fingerprint prompt for login
       const assertion = await SimpleWebAuthnBrowser.startAuthentication(options);
 
-      // Basic check (real verification should be server-side)
-      if (assertion) {
-        // For demo: assume success → move to users if approved
-        currentUser = { name, id: 'demo-id' }; // replace with real user row
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('attendanceSection').style.display = 'block';
-        document.getElementById('welcomeMsg').innerText = `Welcome ${name}! 🙌`;
-        updateStatus();
-        alert("Logged in with fingerprint!");
-      }
+      // Basic success (real verification should be server-side)
+      document.getElementById('loginSection').style.display = 'none';
+      document.getElementById('attendanceSection').style.display = 'block';
+      document.getElementById('welcomeMsg').innerText = `Welcome ${name}! 🙌`;
+      updateStatus();
+      alert("Logged in successfully with fingerprint!");
     } catch (err) {
       alert("Login failed: " + (err.message || "Try again"));
-      console.error(err);
+      console.error("Login error:", err);
     }
   };
 
-  // Mark in/out (same as before)
+  // Mark in/out
   const mark = async (type) => {
-    if (!currentUser) return alert("Login first!");
-    if (!await isAtRestaurant()) return alert("Must be inside restaurant!");
+    if (!currentUser) return alert("Please login first!");
+    if (!await isAtRestaurant()) return alert("You must be inside the restaurant (WiFi/GPS check)");
 
     const today = new Date().toISOString().slice(0,10);
     const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
 
     try {
       const { data: rec } = await supabase.from('attendance')
-        .select().eq('user_id', currentUser.id || 'demo').eq('date', today).single();
+        .select().eq('user_id', currentUser.id).eq('date', today).single();
+
+      if (type === 'in' && rec?.in_time) return alert("Already marked In today!");
+      if (type === 'out' && !rec?.in_time) return alert("Mark In first!");
+      if (type === 'out' && rec?.out_time) return alert("Already marked Out today!");
 
       const updates = type === 'in' ? { in_time: time } : { out_time: time };
 
       if (rec) {
         await supabase.from('attendance').update(updates).eq('id', rec.id);
       } else {
-        await supabase.from('attendance').insert({ user_id: currentUser.id || 'demo', date: today, ...updates });
+        await supabase.from('attendance').insert({ user_id: currentUser.id, date: today, ...updates });
       }
 
       updateStatus();
       alert(type === 'in' ? "Checked In!" : "Checked Out!");
     } catch (err) {
-      alert("Error: " + err.message);
+      alert("Error marking attendance: " + err.message);
     }
   };
 
@@ -221,7 +219,7 @@
     const today = new Date().toISOString().slice(0,10);
     const { data } = await supabase.from('attendance')
       .select('in_time, out_time')
-      .eq('user_id', currentUser.id || 'demo')
+      .eq('user_id', currentUser.id)
       .eq('date', today)
       .single();
 
@@ -238,7 +236,7 @@
     document.getElementById('loginSection').style.display = 'block';
   };
 
-  // Manager login (PIN only)
+  // Manager dashboard
   document.getElementById('managerLoginBtn').onclick = async () => {
     if (document.getElementById('pinInput').value !== MANAGER_PIN) return alert("Wrong PIN!");
     document.getElementById('managerContent').style.display = 'block';
@@ -247,34 +245,46 @@
   };
 
   const loadPending = async () => {
-    const { data } = await supabase.from('pending_registrations').select();
-    const list = document.getElementById('pendingList');
-    list.innerHTML = data?.length ? '' : '<li>No pending registrations</li>';
-    data?.forEach(p => {
-      const li = document.createElement('li');
-      li.innerHTML = `${p.name} <button onclick="approve('${p.id}','${p.name.replace(/'/g,"\\'")}')">Approve</button>`;
-      list.appendChild(li);
-    });
+    try {
+      const { data } = await supabase.from('pending_registrations').select();
+      const list = document.getElementById('pendingList');
+      list.innerHTML = data?.length ? '' : '<li>No pending requests</li>';
+      data?.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `${p.name} <button onclick="approve('${p.id}','${p.name.replace(/'/g,"\\'")}')">Approve</button>`;
+        list.appendChild(li);
+      });
+    } catch (err) {
+      alert("Cannot load pending: " + err.message);
+    }
   };
 
   window.approve = async (id, name) => {
-    await supabase.from('users').insert({ name, role: 'employee' });
-    await supabase.from('pending_registrations').delete().eq('id', id);
-    loadPending();
-    alert(name + " approved!");
+    try {
+      await supabase.from('users').insert({ name, role: 'employee' });
+      await supabase.from('pending_registrations').delete().eq('id', id);
+      loadPending();
+      alert(`${name} approved!`);
+    } catch (err) {
+      alert("Approval failed: " + err.message);
+    }
   };
 
   const loadAllRecords = async () => {
-    const { data } = await supabase.from('attendance')
-      .select('date, in_time, out_time, users(name)')
-      .order('date', { ascending: false });
-    const tbody = document.querySelector('#recordsTable tbody');
-    tbody.innerHTML = data?.length ? '' : '<tr><td colspan="4">No records yet</td></tr>';
-    data?.forEach(r => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${r.users?.name || 'Unknown'}</td><td>${r.date}</td><td>${r.in_time||''}</td><td>${r.out_time||''}</td>`;
-      tbody.appendChild(tr);
-    });
+    try {
+      const { data } = await supabase.from('attendance')
+        .select('date, in_time, out_time, users(name)')
+        .order('date', { ascending: false });
+      const tbody = document.querySelector('#recordsTable tbody');
+      tbody.innerHTML = data?.length ? '' : '<tr><td colspan="4">No records yet</td></tr>';
+      data?.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.users?.name || 'Unknown'}</td><td>${r.date}</td><td>${r.in_time||''}</td><td>${r.out_time||''}</td>`;
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      alert("Cannot load records: " + err.message);
+    }
   };
 </script>
 </body>
