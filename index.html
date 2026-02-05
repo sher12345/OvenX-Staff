@@ -1,291 +1,267 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OvenX Staff Attendance</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:0; background:#111; color:#fff; }
-    header { background:#c62828; padding:20px; text-align:center; font-size:26px; }
-    header::after { content:" 🔥🍕"; }
-    .section { max-width:600px; margin:20px auto; padding:25px; background:#222; border-radius:15px; box-shadow:0 5px 20px rgba(0,0,0,0.5); }
-    input, button { width:100%; padding:15px; margin:10px 0; font-size:18px; border-radius:8px; border:none; }
-    input { background:#333; color:white; }
-    button { background:#43a047; color:white; cursor:pointer; font-weight:bold; }
-    button:hover { background:#388e3c; }
-    table { width:100%; border-collapse:collapse; margin-top:20px; }
-    th, td { padding:12px; text-align:left; border-bottom:1px solid #444; }
-    th { background:#333; }
-    ul { list-style:none; padding:0; }
-    li { margin:10px 0; padding:10px; background:#333; border-radius:8px; }
-    .emoji { font-size:28px; }
-  </style>
-
-  <!-- WebAuthn library - triggers biometric prompt -->
-  <script src="https://unpkg.com/@simplewebauthn/browser@9/dist/bundle/index.umd.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RestoCheck | Biometric Security</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #0f172a; color: white; }
+        .btn-glow { transition: 0.3s; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); box-shadow: 0 0 20px rgba(99, 102, 241, 0.4); }
+        .btn-glow:active { transform: scale(0.95); opacity: 0.9; }
+        .admin-input { background: #1e293b; border: 1px solid #334155; color: white; text-align: center; }
+    </style>
 </head>
-<body>
+<body class="flex flex-col min-h-screen">
 
-<header>OvenX Staff Attendance 🔥</header>
+    <!-- Navbar -->
+    <nav class="p-6 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <div class="bg-indigo-500 p-2 rounded-lg">
+                <i data-lucide="chef-hat" class="w-5 h-5 text-white"></i>
+            </div>
+            <span class="font-extrabold text-xl tracking-tight">RestoCheck</span>
+        </div>
+        <button onclick="openAdmin()" class="text-slate-400 hover:text-white"><i data-lucide="lock" class="w-6 h-6"></i></button>
+    </nav>
 
-<div class="section" id="loginSection">
-  <h2>Employee Portal <span class="emoji">👤</span></h2>
-  <input type="text" id="empName" placeholder="Enter Your Name">
-  <button id="registerBtn">Register Fingerprint (First Time)</button>
-  <button id="loginBtn">Login with Fingerprint</button>
-</div>
+    <!-- Main Content -->
+    <main class="flex-grow flex flex-col items-center justify-center p-6 space-y-8">
+        
+        <!-- User Info -->
+        <div class="text-center" id="user-display">
+            <h2 class="text-3xl font-extrabold" id="staff-name">---</h2>
+            <p class="text-indigo-400 font-bold tracking-widest text-sm" id="staff-id">ID: ---</p>
+        </div>
 
-<div class="section" id="attendanceSection" style="display:none;">
-  <h2 id="welcomeMsg">Welcome!</h2>
-  <p id="status">Checking status...</p>
-  <button id="inBtn">Mark In ⏰</button>
-  <button id="outBtn">Mark Out 🏠</button>
-  <button id="logoutBtn">Logout</button>
-</div>
+        <!-- Network Shield -->
+        <div id="net-shield" class="flex items-center gap-3 bg-red-500/10 border border-red-500/20 px-6 py-3 rounded-full text-red-500 text-xs font-bold">
+            <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            OUTSIDE RESTAURANT NETWORK
+        </div>
 
-<div class="section" id="managerSection">
-  <h2>Manager Portal <span class="emoji">👑</span></h2>
-  <input type="password" id="pinInput" placeholder="Manager PIN">
-  <button id="managerLoginBtn">Enter Dashboard</button>
-  <div id="managerContent" style="display:none;">
-    <h3>Pending Approvals</h3>
-    <ul id="pendingList"></ul>
-    <h3>All Records</h3>
-    <table id="recordsTable">
-      <thead><tr><th>Name</th><th>Date</th><th>In</th><th>Out</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</div>
+        <!-- THE SENSOR BUTTON -->
+        <div class="relative">
+            <div id="ring-anim" class="absolute inset-0 rounded-full bg-indigo-500/20 scale-125 hidden animate-ping"></div>
+            <button id="scan-btn" onclick="startBiometricAuth()" disabled 
+                class="relative w-56 h-56 rounded-full bg-slate-800 border-4 border-slate-700 flex flex-col items-center justify-center gap-4 transition-all duration-500">
+                <i data-lucide="fingerprint" id="finger-icon" class="w-20 h-20 text-slate-600"></i>
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500" id="btn-text">Check WiFi</span>
+            </button>
+        </div>
 
-<script type="module">
-  import { createClient } from 'https://cdn.skypack.dev/@supabase/supabase-js@v2';
+        <p class="text-slate-500 text-xs text-center max-w-[200px]">Connected to restaurant internet to enable biometric scanner</p>
+    </main>
 
-  const SUPABASE_URL    = 'https://yurcvcopewizauhzpiek.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_cwLnJsHZDELZXEpB6xfwbw_NVqT_s4G';
+    <!-- Modal: Registration -->
+    <div id="reg-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6 hidden">
+        <div class="bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 border border-slate-800">
+            <h3 class="text-2xl font-black mb-2">Staff Setup</h3>
+            <p class="text-slate-400 text-sm mb-8">Enter your details to register this device for attendance.</p>
+            <input type="text" id="reg-name" placeholder="Full Name" class="w-full admin-input py-4 rounded-2xl mb-4 focus:ring-2 ring-indigo-500 outline-none">
+            <input type="text" id="reg-id" placeholder="Employee ID" class="w-full admin-input py-4 rounded-2xl mb-8 focus:ring-2 ring-indigo-500 outline-none">
+            <button onclick="saveRegistration()" class="w-full btn-glow py-4 rounded-2xl font-black uppercase tracking-widest text-sm text-white">Register Device</button>
+        </div>
+    </div>
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    <!-- Modal: Admin PIN -->
+    <div id="admin-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6 hidden">
+        <div class="bg-slate-900 w-full max-w-xs rounded-[3rem] p-10 text-center border border-slate-800">
+            <h3 class="text-xl font-black mb-6">Admin Access</h3>
+            <input type="password" id="pin-input" maxlength="4" placeholder="••••" class="w-full admin-input text-4xl py-4 rounded-2xl mb-6 outline-none">
+            <div class="flex gap-2">
+                <button onclick="closeAdmin()" class="flex-1 bg-slate-800 py-4 rounded-2xl font-bold">Back</button>
+                <button onclick="verifyPin()" class="flex-1 btn-glow py-4 rounded-2xl font-bold">Login</button>
+            </div>
+        </div>
+    </div>
 
-  const MANAGER_PIN     = "7530";
-  const RESTAURANT_LAT  = 24.8607;
-  const RESTAURANT_LNG  = 67.0011;
-  const MAX_DISTANCE    = 0.2;
+    <!-- Admin Panel -->
+    <div id="admin-panel" class="fixed inset-0 bg-slate-950 z-[60] p-6 overflow-y-auto hidden">
+        <div class="flex justify-between items-center mb-8">
+            <h2 class="text-2xl font-black uppercase italic">Dashboard</h2>
+            <button onclick="closePanel()" class="bg-slate-800 p-3 rounded-full"><i data-lucide="x"></i></button>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <div class="bg-slate-900 p-6 rounded-3xl border border-slate-800">
+                <p class="text-slate-500 text-[10px] font-black uppercase mb-1">Total Records</p>
+                <p id="count-total" class="text-3xl font-black text-indigo-400">0</p>
+            </div>
+            <button onclick="downloadExcel()" class="bg-indigo-600 p-6 rounded-3xl flex flex-col items-center justify-center gap-2">
+                <i data-lucide="file-spreadsheet"></i>
+                <span class="text-[10px] font-black uppercase">Export Excel</span>
+            </button>
+        </div>
 
-  let currentUser = null;
+        <div class="bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-800/50">
+                    <tr>
+                        <th class="p-4 font-black uppercase text-slate-500">Employee</th>
+                        <th class="p-4 font-black uppercase text-slate-500">In/Out</th>
+                    </tr>
+                </thead>
+                <tbody id="log-table" class="divide-y divide-slate-800"></tbody>
+            </table>
+        </div>
+        <button onclick="clearLogs()" class="w-full mt-10 py-4 text-red-500/50 text-[10px] font-black uppercase tracking-widest">Clear Database</button>
+    </div>
 
-  // Location check (GPS approx for restaurant WiFi)
-  const isAtRestaurant = async () => {
-    if (!navigator.geolocation) return false;
-    return new Promise(resolve => {
-      navigator.geolocation.getCurrentPosition(pos => {
-        const R = 6371;
-        const dLat = (RESTAURANT_LAT - pos.coords.latitude) * Math.PI / 180;
-        const dLon = (RESTAURANT_LNG - pos.coords.longitude) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(pos.coords.latitude * Math.PI / 180) *
-                  Math.cos(RESTAURANT_LAT * Math.PI / 180) *
-                  Math.sin(dLon/2) * Math.sin(dLon/2);
-        const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        resolve(distance <= MAX_DISTANCE);
-      }, () => resolve(false), { enableHighAccuracy: true, timeout: 10000 });
-    });
-  };
+    <script>
+        const TARGET_IP = "192.168.1.1";
+        const ADMIN_PIN = "7530";
+        let logs = JSON.parse(localStorage.getItem('logs')) || [];
+        let staff = JSON.parse(localStorage.getItem('staff')) || null;
 
-  // First time: Register fingerprint
-  document.getElementById('registerBtn').onclick = async () => {
-    const name = document.getElementById('empName').value.trim();
-    if (!name) return alert("Enter your name!");
+        // --- Initialization ---
+        window.onload = () => {
+            lucide.createIcons();
+            if (!staff) document.getElementById('reg-modal').classList.remove('hidden');
+            else {
+                document.getElementById('staff-name').innerText = staff.name;
+                document.getElementById('staff-id').innerText = `ID: ${staff.id}`;
+            }
+            checkNetwork();
+        };
 
-    try {
-      // Check if already exists
-      const { data: pending } = await supabase.from('pending_registrations').select().eq('name', name).single();
-      const { data: user } = await supabase.from('users').select().eq('name', name).single();
+        // --- Network Check ---
+        async function checkNetwork() {
+            const shield = document.getElementById('net-shield');
+            const btn = document.getElementById('scan-btn');
+            const icon = document.getElementById('finger-icon');
+            const txt = document.getElementById('btn-text');
 
-      if (pending || user) {
-        return alert(`"${name}" is already registered or waiting for approval.\n\nIf pending → ask manager.\nIf approved → use Login button.`);
-      }
+            try {
+                const res = await fetch('https://api.ipify.org?format=json');
+                const data = await res.json();
+                const myIp = data.ip;
 
-      // Simple random challenge (demo only - production should use server)
-      const challenge = crypto.getRandomValues(new Uint8Array(32));
+                // SIMULATION: If IP is yours OR matches a 192 local range
+                if (myIp === TARGET_IP || myIp.startsWith("192.") || myIp.startsWith("10.")) {
+                    shield.className = "flex items-center gap-3 bg-indigo-500/10 border border-indigo-500/20 px-6 py-3 rounded-full text-indigo-400 text-xs font-bold";
+                    shield.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i> RESTAURANT NETWORK ACTIVE`;
+                    btn.disabled = false;
+                    btn.classList.add('btn-glow', 'border-indigo-400');
+                    btn.classList.remove('bg-slate-800', 'border-slate-700');
+                    icon.classList.replace('text-slate-600', 'text-white');
+                    txt.innerText = "Scan Finger";
+                    txt.classList.replace('text-slate-500', 'text-white');
+                    document.getElementById('ring-anim').classList.remove('hidden');
+                }
+            } catch (e) { console.log("Network check failed"); }
+            lucide.createIcons();
+        }
 
-      const options = {
-        challenge,
-        rp: { name: "OvenX Restaurant", id: window.location.hostname },
-        user: {
-          id: crypto.getRandomValues(new Uint8Array(16)),
-          name,
-          displayName: name
-        },
-        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-        authenticatorSelection: { userVerification: "required" },
-        timeout: 60000
-      };
+        // --- THE SENSOR LOGIC ---
+        async function startBiometricAuth() {
+            // Check if HTTPS
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                alert("Security Error: Biometric scanning requires an HTTPS connection (GitHub Pages).");
+                return;
+            }
 
-      // This should open the fingerprint / face ID / PIN prompt
-      const credential = await SimpleWebAuthnBrowser.startRegistration(options);
+            try {
+                // We use navigator.credentials.create to force the native OS sensor popup
+                const challenge = new Uint8Array(32);
+                window.crypto.getRandomValues(challenge);
 
-      // Store in pending for approval
-      const { error } = await supabase.from('pending_registrations').insert({
-        name,
-        credential_id: credential.id,
-        public_key: btoa(String.fromCharCode(...new Uint8Array(credential.response.getPublicKey()))),
-        sign_count: 0
-      });
+                const publicKeyCredentialCreationOptions = {
+                    challenge: challenge,
+                    rp: { name: "RestoCheck", id: window.location.hostname },
+                    user: {
+                        id: Uint8Array.from(staff.id, c => c.charCodeAt(0)),
+                        name: staff.name,
+                        displayName: staff.name
+                    },
+                    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+                    authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                    timeout: 60000
+                };
 
-      if (error) throw error;
+                // THIS TRIGGER IS THE ACTUAL POPUP
+                await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
+                
+                // If the code reaches here, the user successfully scanned their finger
+                confirmCheck();
 
-      alert("Fingerprint registered successfully!\nNow ask manager to approve your account in the dashboard.");
-    } catch (err) {
-      if (err.name === 'NotAllowedError') {
-        alert("Permission denied.\nPlease allow fingerprint/face ID when prompted by your phone.");
-      } else if (err.message?.includes('duplicate key')) {
-        alert(`"${name}" is already registered.\nUse Login button if approved, or ask manager.`);
-      } else {
-        alert("Registration failed: " + (err.message || "Unknown error"));
-      }
-      console.error("Registration error:", err);
-    }
-  };
+            } catch (err) {
+                // If user cancels or device has no fingerprint set up
+                console.error(err);
+                if (err.name === 'NotAllowedError') {
+                    alert("Verification Failed: Biometric was canceled or timed out.");
+                } else {
+                    // Fail-safe for desktop/unsupported browsers: Allow manual verification
+                    if(confirm("Native sensor issue. Verify manually as " + staff.name + "?")) {
+                        confirmCheck();
+                    }
+                }
+            }
+        }
 
-  // Login with fingerprint
-  document.getElementById('loginBtn').onclick = async () => {
-    const name = document.getElementById('empName').value.trim();
-    if (!name) return alert("Enter your name!");
+        function confirmCheck() {
+            const now = new Date();
+            const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            const date = now.toLocaleDateString();
 
-    try {
-      // Check if approved (in users table)
-      const { data: user, error: userErr } = await supabase.from('users').select('*').eq('name', name).single();
-      if (userErr || !user) {
-        return alert("Account not approved yet or not found.\nRegister first or ask manager to approve.");
-      }
+            let openLog = logs.find(l => l.date === date && l.out === '--' && l.id === staff.id);
 
-      currentUser = user;
+            if (openLog) {
+                openLog.out = time;
+            } else {
+                logs.push({ name: staff.name, id: staff.id, date: date, in: time, out: '--' });
+            }
 
-      // Simple challenge (demo)
-      const challenge = crypto.getRandomValues(new Uint8Array(32));
+            localStorage.setItem('logs', JSON.stringify(logs));
+            document.getElementById('scan-btn').classList.replace('btn-glow', 'bg-emerald-500');
+            document.getElementById('btn-text').innerText = "Verified!";
+            setTimeout(() => location.reload(), 2000);
+        }
 
-      const options = {
-        challenge,
-        allowCredentials: [{ type: "public-key", id: new TextEncoder().encode(user.credential_id || '') }],
-        userVerification: "required"
-      };
+        // --- Admin Functions ---
+        function openAdmin() { document.getElementById('admin-modal').classList.remove('hidden'); }
+        function closeAdmin() { document.getElementById('admin-modal').classList.add('hidden'); }
+        function verifyPin() {
+            if (document.getElementById('pin-input').value === ADMIN_PIN) {
+                document.getElementById('admin-modal').classList.add('hidden');
+                document.getElementById('admin-panel').classList.remove('hidden');
+                loadAdminData();
+            } else { alert("Wrong PIN"); }
+        }
+        function closePanel() { document.getElementById('admin-panel').classList.add('hidden'); }
+        
+        function loadAdminData() {
+            const table = document.getElementById('log-table');
+            table.innerHTML = '';
+            logs.slice().reverse().forEach(l => {
+                table.innerHTML += `<tr>
+                    <td class="p-4 font-bold">${l.name}<br><span class="text-[8px] text-slate-500">${l.date}</span></td>
+                    <td class="p-4 font-mono text-indigo-400">IN: ${l.in}<br><span class="text-orange-400">OUT: ${l.out}</span></td>
+                </tr>`;
+            });
+            document.getElementById('count-total').innerText = logs.length;
+        }
 
-      const assertion = await SimpleWebAuthnBrowser.startAuthentication(options);
+        function downloadExcel() {
+            const ws = XLSX.utils.json_to_sheet(logs);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+            XLSX.writeFile(wb, "Attendance_Report.xlsx");
+        }
 
-      // Basic success (real verification should be server-side)
-      document.getElementById('loginSection').style.display = 'none';
-      document.getElementById('attendanceSection').style.display = 'block';
-      document.getElementById('welcomeMsg').innerText = `Welcome ${name}! 🙌`;
-      updateStatus();
-      alert("Logged in successfully with fingerprint!");
-    } catch (err) {
-      alert("Login failed: " + (err.message || "Try again"));
-      console.error("Login error:", err);
-    }
-  };
+        function saveRegistration() {
+            const name = document.getElementById('reg-name').value;
+            const id = document.getElementById('reg-id').value;
+            if (name && id) {
+                localStorage.setItem('staff', JSON.stringify({ name, id }));
+                location.reload();
+            }
+        }
 
-  // Mark in/out
-  const mark = async (type) => {
-    if (!currentUser) return alert("Please login first!");
-    if (!await isAtRestaurant()) return alert("You must be inside the restaurant (WiFi/GPS check)");
-
-    const today = new Date().toISOString().slice(0,10);
-    const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
-
-    try {
-      const { data: rec } = await supabase.from('attendance')
-        .select().eq('user_id', currentUser.id).eq('date', today).single();
-
-      if (type === 'in' && rec?.in_time) return alert("Already marked In today!");
-      if (type === 'out' && !rec?.in_time) return alert("Mark In first!");
-      if (type === 'out' && rec?.out_time) return alert("Already marked Out today!");
-
-      const updates = type === 'in' ? { in_time: time } : { out_time: time };
-
-      if (rec) {
-        await supabase.from('attendance').update(updates).eq('id', rec.id);
-      } else {
-        await supabase.from('attendance').insert({ user_id: currentUser.id, date: today, ...updates });
-      }
-
-      updateStatus();
-      alert(type === 'in' ? "Checked In!" : "Checked Out!");
-    } catch (err) {
-      alert("Error marking attendance: " + err.message);
-    }
-  };
-
-  const updateStatus = async () => {
-    const today = new Date().toISOString().slice(0,10);
-    const { data } = await supabase.from('attendance')
-      .select('in_time, out_time')
-      .eq('user_id', currentUser.id)
-      .eq('date', today)
-      .single();
-
-    document.getElementById('status').innerText = data
-      ? `In: ${data.in_time || '-'} | Out: ${data.out_time || 'Working'}`
-      : "Not checked in today";
-  };
-
-  document.getElementById('inBtn').onclick  = () => mark('in');
-  document.getElementById('outBtn').onclick = () => mark('out');
-  document.getElementById('logoutBtn').onclick = () => {
-    currentUser = null;
-    document.getElementById('attendanceSection').style.display = 'none';
-    document.getElementById('loginSection').style.display = 'block';
-  };
-
-  // Manager dashboard
-  document.getElementById('managerLoginBtn').onclick = async () => {
-    if (document.getElementById('pinInput').value !== MANAGER_PIN) return alert("Wrong PIN!");
-    document.getElementById('managerContent').style.display = 'block';
-    await loadPending();
-    await loadAllRecords();
-  };
-
-  const loadPending = async () => {
-    try {
-      const { data } = await supabase.from('pending_registrations').select();
-      const list = document.getElementById('pendingList');
-      list.innerHTML = data?.length ? '' : '<li>No pending requests</li>';
-      data?.forEach(p => {
-        const li = document.createElement('li');
-        li.innerHTML = `${p.name} <button onclick="approve('${p.id}','${p.name.replace(/'/g,"\\'")}')">Approve</button>`;
-        list.appendChild(li);
-      });
-    } catch (err) {
-      alert("Cannot load pending: " + err.message);
-    }
-  };
-
-  window.approve = async (id, name) => {
-    try {
-      await supabase.from('users').insert({ name, role: 'employee' });
-      await supabase.from('pending_registrations').delete().eq('id', id);
-      loadPending();
-      alert(`${name} approved!`);
-    } catch (err) {
-      alert("Approval failed: " + err.message);
-    }
-  };
-
-  const loadAllRecords = async () => {
-    try {
-      const { data } = await supabase.from('attendance')
-        .select('date, in_time, out_time, users(name)')
-        .order('date', { ascending: false });
-      const tbody = document.querySelector('#recordsTable tbody');
-      tbody.innerHTML = data?.length ? '' : '<tr><td colspan="4">No records yet</td></tr>';
-      data?.forEach(r => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r.users?.name || 'Unknown'}</td><td>${r.date}</td><td>${r.in_time||''}</td><td>${r.out_time||''}</td>`;
-        tbody.appendChild(tr);
-      });
-    } catch (err) {
-      alert("Cannot load records: " + err.message);
-    }
-  };
-</script>
+        function clearLogs() { if(confirm("Delete all data?")) { localStorage.clear(); location.reload(); } }
+    </script>
 </body>
 </html>
