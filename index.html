@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Restaurant Attendance - Sher</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f9f9f9; }
+    h1 { color: #d32f2f; text-align: center; }
+    .section { max-width: 500px; margin: 20px auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    input, button { padding: 10px; margin: 8px 0; width: 100%; box-sizing: border-box; font-size: 16px; }
+    button { background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #45a049; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #f2f2f2; }
+    #managerSection { display: none; }
+  </style>
+</head>
+<body>
+
+<h1>Restaurant Attendance</h1>
+
+<div class="section" id="loginSection">
+  <h2>Login / Mark Attendance</h2>
+  <input type="text" id="empId" placeholder="Your Employee ID or Name" />
+  <input type="password" id="pin" placeholder="4-digit PIN (ask manager)" />
+  <button onclick="login()">Login</button>
+</div>
+
+<div class="section" id="attendanceSection" style="display:none;">
+  <h2 id="welcome"></h2>
+  <button onclick="mark('in')">Mark In (Check-in)</button>
+  <button onclick="mark('out')">Mark Out (Check-out)</button>
+  <p id="status"></p>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<div class="section" id="managerSection">
+  <h2>Manager Dashboard</h2>
+  <button onclick="exportCSV()">Download Excel (CSV)</button>
+  <table id="recordsTable">
+    <thead><tr><th>Name</th><th>Date</th><th>In</th><th>Out</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+  const MANAGER_PIN = "1234"; // Change this to your secret PIN
+  let currentUser = null;
+
+  function login() {
+    const id = document.getElementById("empId").value.trim();
+    const pin = document.getElementById("pin").value.trim();
+
+    if (!id) return alert("Enter your name/ID");
+
+    if (pin === MANAGER_PIN) {
+      document.getElementById("loginSection").style.display = "none";
+      document.getElementById("attendanceSection").style.display = "none";
+      document.getElementById("managerSection").style.display = "block";
+      showManagerRecords();
+      return;
+    }
+
+    // Normal employee
+    currentUser = id;
+    localStorage.setItem("lastUser", id);
+    document.getElementById("loginSection").style.display = "none";
+    document.getElementById("attendanceSection").style.display = "block";
+    document.getElementById("welcome").innerText = `Welcome, ${id}!`;
+    updateStatus();
+  }
+
+  function mark(type) {
+    if (!currentUser) return;
+    const today = new Date().toISOString().split("T")[0];
+    const time = new Date().toLocaleTimeString();
+
+    let records = JSON.parse(localStorage.getItem("attendance") || "{}");
+    if (!records[currentUser]) records[currentUser] = {};
+    if (!records[currentUser][today]) records[currentUser][today] = {in: null, out: null};
+
+    if (type === "in" && !records[currentUser][today].in) {
+      records[currentUser][today].in = time;
+    } else if (type === "out" && records[currentUser][today].in && !records[currentUser][today].out) {
+      records[currentUser][today].out = time;
+    } else {
+      return alert(`Already marked ${type} today!`);
+    }
+
+    localStorage.setItem("attendance", JSON.stringify(records));
+    updateStatus();
+  }
+
+  function updateStatus() {
+    if (!currentUser) return;
+    const today = new Date().toISOString().split("T")[0];
+    const records = JSON.parse(localStorage.getItem("attendance") || "{}");
+    const rec = records[currentUser]?.[today];
+    let msg = "Not checked in today";
+    if (rec) {
+      msg = `In: ${rec.in || "?"} | Out: ${rec.out || "Still working"}`;
+    }
+    document.getElementById("status").innerText = msg;
+  }
+
+  function logout() {
+    currentUser = null;
+    document.getElementById("attendanceSection").style.display = "none";
+    document.getElementById("loginSection").style.display = "block";
+  }
+
+  function showManagerRecords() {
+    const records = JSON.parse(localStorage.getItem("attendance") || "{}");
+    const tbody = document.querySelector("#recordsTable tbody");
+    tbody.innerHTML = "";
+
+    Object.keys(records).forEach(user => {
+      Object.keys(records[user]).forEach(date => {
+        const r = records[user][date];
+        const row = `<tr><td>${user}</td><td>${date}</td><td>${r.in || ""}</td><td>${r.out || ""}</td></tr>`;
+        tbody.innerHTML += row;
+      });
+    });
+  }
+
+  function exportCSV() {
+    const records = JSON.parse(localStorage.getItem("attendance") || "{}");
+    let csv = "Name,Date,In,Out\n";
+    Object.keys(records).forEach(user => {
+      Object.keys(records[user]).forEach(date => {
+        const r = records[user][date];
+        csv += `"${user}","${date}","${r.in || ""}","${r.out || ""}"\n`;
+      });
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "attendance.csv";
+    a.click();
+  }
+
+  // Auto login if already used
+  if (localStorage.getItem("lastUser")) {
+    document.getElementById("empId").value = localStorage.getItem("lastUser");
+  }
+</script>
+</body>
+</html>
