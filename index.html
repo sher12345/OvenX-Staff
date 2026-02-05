@@ -15,12 +15,13 @@
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
     th { background: #f2f2f2; }
-    #managerSection, #managerContent { display: none; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 5px; }
     .emoji { font-size: 24px; }
     @media (max-width: 600px) { .section { margin: 10px; padding: 15px; } }
   </style>
-  <!-- Supabase JS Client -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Supabase JS Client (UMD build for browser) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
@@ -29,23 +30,23 @@
 <div class="section" id="loginSection">
   <h2>Employee Portal <span class="emoji">👤</span></h2>
   <input type="text" id="empName" placeholder="Your Name (e.g., Sher)" />
-  <button onclick="registerFingerprint()">Register Fingerprint First Time</button>
-  <button onclick="loginWithFingerprint()">Login with Fingerprint</button>
+  <button id="btnRegister">Register Fingerprint First Time</button>
+  <button id="btnLogin">Login with Fingerprint</button>
 </div>
 
 <div class="section" id="attendanceSection" style="display:none;">
   <h2 id="welcome">Welcome! <span class="emoji">🙌</span></h2>
-  <p id="status"></p>
-  <button onclick="mark('in')">Mark In <span class="emoji">⏰</span></button>
-  <button onclick="mark('out')">Mark Out <span class="emoji">🏠</span></button>
-  <button onclick="logout()">Logout</button>
+  <p id="status">Loading status...</p>
+  <button id="btnMarkIn">Mark In <span class="emoji">⏰</span></button>
+  <button id="btnMarkOut">Mark Out <span class="emoji">🏠</span></button>
+  <button id="btnLogout">Logout</button>
 </div>
 
 <div class="section" id="managerSection">
   <h2>Manager Portal <span class="emoji">👔</span></h2>
-  <input type="password" id="managerPin" placeholder="Manager PIN (change in code)" />
-  <button onclick="loginManager()">Enter Manager Dashboard</button>
-  <div id="managerContent">
+  <input type="password" id="managerPin" placeholder="Manager PIN (default: 1234)" />
+  <button id="btnManagerLogin">Enter Manager Dashboard</button>
+  <div id="managerContent" style="display:none;">
     <h3>Pending Fingerprint Approvals <span class="emoji">🕒</span></h3>
     <ul id="pendingList"></ul>
     <h3>All Attendance Records <span class="emoji">📊</span></h3>
@@ -53,32 +54,39 @@
       <thead><tr><th>Name</th><th>Date</th><th>In</th><th>Out</th></tr></thead>
       <tbody></tbody>
     </table>
-    <button onclick="exportCSV()">Download CSV (Excel) <span class="emoji">📥</span></button>
+    <button id="btnExport">Download CSV (Excel) <span class="emoji">📥</span></button>
   </div>
 </div>
 
 <script>
+  console.log("Script started loading...");
+
   // === Your Supabase Config ===
-  const SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';  // CHANGE THIS! Dashboard > Settings > API > Project URL
+  const SUPABASE_URL = 'https://yurcvcopewizauhzpiek.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_cwLnJsHZDELZXEpB6xfwbw_NVqT_s4G';
 
   const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  console.log("Supabase client created");
 
-  const MANAGER_PIN = "1234"; // Change this to your secret PIN
-  const RESTAURANT_LAT = 24.8607; // Change to your restaurant's latitude (Google Maps se copy)
-  const RESTAURANT_LNG = 67.0011; // Change to your restaurant's longitude
-  const MAX_DISTANCE_KM = 0.2; // ~200 meters radius
+  const MANAGER_PIN = "1234"; // ← CHANGE THIS TO YOUR SECRET PIN
+  const RESTAURANT_LAT = 24.8607; // Karachi example – CHANGE TO YOUR RESTAURANT LAT
+  const RESTAURANT_LNG = 67.0011; // CHANGE TO YOUR RESTAURANT LNG
+  const MAX_DISTANCE_KM = 0.2; // ~200 meters
 
   let currentUser = null;
 
-  // Location check (approx WiFi check)
+  // Helper: Check if user is at restaurant (approx via GPS)
   async function isAtRestaurant() {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       if (!navigator.geolocation) return resolve(false);
-      navigator.geolocation.getCurrentPosition(pos => {
-        const dist = getDistance(pos.coords.latitude, pos.coords.longitude, RESTAURANT_LAT, RESTAURANT_LNG);
-        resolve(dist <= MAX_DISTANCE_KM);
-      }, () => resolve(false), { enableHighAccuracy: true, timeout: 5000 });
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const dist = getDistance(pos.coords.latitude, pos.coords.longitude, RESTAURANT_LAT, RESTAURANT_LNG);
+          resolve(dist <= MAX_DISTANCE_KM);
+        },
+        () => resolve(false),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
     });
   }
 
@@ -86,84 +94,94 @@
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2)**2;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
 
+  // Register name to pending (fingerprint simulation)
   async function registerFingerprint() {
     const name = document.getElementById("empName").value.trim();
-    if (!name) return alert("Enter your name first!");
-
-    // For full fingerprint: Use @simplewebauthn + Supabase Edge Function (next step if needed)
-    // Demo: Just register name in pending
-    const { error } = await supabase.from('pending_registrations').insert({ name });
-    if (error) return alert("Error: " + error.message);
-    alert("Registration request sent! Manager will approve soon.");
+    if (!name) return alert("Please enter your name!");
+    try {
+      const { error } = await supabase.from('pending_registrations').insert({ name });
+      if (error) throw error;
+      alert("Fingerprint registration request sent! Ask manager to approve.");
+    } catch (err) {
+      alert("Error: " + err.message);
+      console.error(err);
+    }
   }
 
+  // Login (checks if approved in users table)
   async function loginWithFingerprint() {
     const name = document.getElementById("empName").value.trim();
-    if (!name) return alert("Enter your name!");
-
-    const { data, error } = await supabase.from('users').select('*').eq('name', name).single();
-    if (error || !data) return alert("Not approved yet or not found. Ask manager to approve.");
-
-    currentUser = data;
-    document.getElementById("loginSection").style.display = "none";
-    document.getElementById("attendanceSection").style.display = "block";
-    document.getElementById("welcome").innerText = `Welcome, ${data.name}! 🙌`;
-    updateStatus();
+    if (!name) return alert("Please enter your name!");
+    try {
+      const { data, error } = await supabase.from('users').select('*').eq('name', name).single();
+      if (error || !data) throw new Error("Not approved yet or name not found. Ask manager.");
+      currentUser = data;
+      document.getElementById("loginSection").style.display = "none";
+      document.getElementById("attendanceSection").style.display = "block";
+      document.getElementById("welcome").innerText = `Welcome, ${data.name}! 🙌`;
+      updateStatus();
+    } catch (err) {
+      alert(err.message);
+      console.error(err);
+    }
   }
 
+  // Mark in/out
   async function mark(type) {
-    if (!currentUser) return alert("Login first!");
-    if (!(await isAtRestaurant())) return alert("You must be at the restaurant! (Location/WiFi check failed)");
-
+    if (!currentUser) return alert("Please login first!");
+    if (!(await isAtRestaurant())) return alert("You must be at the restaurant! (Location check failed – allow GPS if prompted)");
+    
     const today = new Date().toISOString().split('T')[0];
-    const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-    const { data: existing, error: fetchError } = await supabase.from('attendance')
-      .select('in_time, out_time')
-      .eq('user_id', currentUser.id)
-      .eq('date', today)
-      .single();
+    try {
+      const { data: existing } = await supabase
+        .from('attendance')
+        .select('in_time, out_time')
+        .eq('user_id', currentUser.id)
+        .eq('date', today)
+        .single();
 
-    if (fetchError && fetchError.code !== 'PGRST116') console.error(fetchError);
+      let updateData = {};
+      if (type === 'in' && (!existing || !existing.in_time)) updateData.in_time = time;
+      else if (type === 'out' && existing?.in_time && !existing.out_time) updateData.out_time = time;
+      else return alert(`You already marked ${type} today!`);
 
-    let updateData = {};
-    if (type === 'in' && (!existing || !existing.in_time)) updateData.in_time = time;
-    else if (type === 'out' && existing?.in_time && !existing.out_time) updateData.out_time = time;
-    else return alert(`Already marked ${type} today!`);
-
-    if (existing) {
-      const { error } = await supabase.from('attendance').update(updateData)
-        .eq('user_id', currentUser.id).eq('date', today);
-      if (error) return alert("Update error: " + error.message);
-    } else {
-      const { error } = await supabase.from('attendance').insert({
-        user_id: currentUser.id,
-        date: today,
-        ...updateData
-      });
-      if (error) return alert("Insert error: " + error.message);
+      if (existing) {
+        await supabase.from('attendance').update(updateData).eq('user_id', currentUser.id).eq('date', today);
+      } else {
+        await supabase.from('attendance').insert({ user_id: currentUser.id, date: today, ...updateData });
+      }
+      updateStatus();
+      alert(`${type.toUpperCase()} marked at ${time}`);
+    } catch (err) {
+      alert("Error marking attendance: " + err.message);
+      console.error(err);
     }
-    updateStatus();
-    alert(`${type.toUpperCase()} marked successfully!`);
   }
 
   async function updateStatus() {
     if (!currentUser) return;
     const today = new Date().toISOString().split('T')[0];
-    const { data } = await supabase.from('attendance')
-      .select('in_time, out_time')
-      .eq('user_id', currentUser.id)
-      .eq('date', today)
-      .single();
-
-    let msg = "Not checked in today";
-    if (data) msg = `In: ${data.in_time || '?'} | Out: ${data.out_time || 'Still working'}`;
-    document.getElementById("status").innerText = msg;
+    try {
+      const { data } = await supabase
+        .from('attendance')
+        .select('in_time, out_time')
+        .eq('user_id', currentUser.id)
+        .eq('date', today)
+        .single();
+      const msg = data
+        ? `In: ${data.in_time || '?'} | Out: ${data.out_time || 'Still working'}`
+        : "Not checked in today";
+      document.getElementById("status").innerText = msg;
+    } catch (err) {
+      console.error("Status update error:", err);
+    }
   }
 
   function logout() {
@@ -172,62 +190,75 @@
     document.getElementById("loginSection").style.display = "block";
   }
 
+  // Manager login
   function loginManager() {
     const pin = document.getElementById("managerPin").value;
-    if (pin !== MANAGER_PIN) return alert("Wrong PIN!");
+    if (pin !== MANAGER_PIN) return alert("Incorrect PIN!");
     document.getElementById("managerContent").style.display = "block";
     loadPending();
     loadRecords();
   }
 
   async function loadPending() {
-    const { data, error } = await supabase.from('pending_registrations').select('name, id');
-    if (error) return alert("Error loading pending: " + error.message);
-    const list = document.getElementById("pendingList");
-    list.innerHTML = '';
-    data.forEach(p => {
-      const li = document.createElement('li');
-      li.innerText = p.name + ' ';
-      const btn = document.createElement('button');
-      btn.innerText = 'Approve';
-      btn.onclick = async () => {
-        await supabase.from('users').insert({ name: p.name, role: 'employee' });
-        await supabase.from('pending_registrations').delete().eq('id', p.id);
-        loadPending();
-        alert(`${p.name} approved!`);
-      };
-      li.appendChild(btn);
-      list.appendChild(li);
-    });
+    try {
+      const { data, error } = await supabase.from('pending_registrations').select('name, id');
+      if (error) throw error;
+      const list = document.getElementById("pendingList");
+      list.innerHTML = '';
+      data.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `${p.name} <button onclick="approveUser('${p.id}', '${p.name}')">Approve</button>`;
+        list.appendChild(li);
+      });
+    } catch (err) {
+      alert("Error loading pending: " + err.message);
+    }
   }
 
+  window.approveUser = async function(id, name) {  // global for onclick
+    try {
+      await supabase.from('users').insert({ name, role: 'employee' });
+      await supabase.from('pending_registrations').delete().eq('id', id);
+      loadPending();
+      alert(`${name} approved!`);
+    } catch (err) {
+      alert("Approval error: " + err.message);
+    }
+  };
+
   async function loadRecords() {
-    const { data, error } = await supabase.from('attendance')
-      .select(`
-        user_id,
-        date,
-        in_time,
-        out_time,
-        users!inner (name)
-      `);
-    if (error) return alert("Error loading records: " + error.message);
-    const tbody = document.querySelector("#recordsTable tbody");
-    tbody.innerHTML = '';
-    data.forEach(r => {
-      const row = document.createElement('tr');
-      row.innerHTML = `<td>${r.users.name}</td><td>${r.date}</td><td>${r.in_time || ''}</td><td>${r.out_time || ''}</td>`;
-      tbody.appendChild(row);
-    });
+    try {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('user_id, date, in_time, out_time, users!inner(name)');
+      if (error) throw error;
+      const tbody = document.querySelector("#recordsTable tbody");
+      tbody.innerHTML = '';
+      data.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.users.name}</td><td>${r.date}</td><td>${r.in_time || ''}</td><td>${r.out_time || ''}</td>`;
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      alert("Error loading records: " + err.message);
+    }
   }
 
   function exportCSV() {
-    // Basic CSV export (can improve later)
-    alert("CSV export coming soon - for now copy from table or use manager view.");
-    // To add full: fetch data again and create Blob
+    alert("Full CSV export coming soon – for now view/copy from the table above.");
+    // Can add Blob-based CSV later if needed
   }
 
-  // Make manager section visible (for testing; can hide behind a link later)
-  document.getElementById("managerSection").style.display = "block";
+  // Event listeners
+  document.getElementById('btnRegister').addEventListener('click', registerFingerprint);
+  document.getElementById('btnLogin').addEventListener('click', loginWithFingerprint);
+  document.getElementById('btnMarkIn').addEventListener('click', () => mark('in'));
+  document.getElementById('btnMarkOut').addEventListener('click', () => mark('out'));
+  document.getElementById('btnLogout').addEventListener('click', logout);
+  document.getElementById('btnManagerLogin').addEventListener('click', loginManager);
+  document.getElementById('btnExport').addEventListener('click', exportCSV);
+
+  console.log("All event listeners attached – ready!");
 </script>
 </body>
 </html>
