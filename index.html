@@ -3,265 +3,422 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RestoCheck | Biometric Security</title>
+    <title>RestoFlow | OvenX Admin Intelligence</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #0f172a; color: white; }
-        .btn-glow { transition: 0.3s; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); box-shadow: 0 0 20px rgba(99, 102, 241, 0.4); }
-        .btn-glow:active { transform: scale(0.95); opacity: 0.9; }
-        .admin-input { background: #1e293b; border: 1px solid #334155; color: white; text-align: center; }
+        :root { 
+            --red: #8b0000; --orange: #f37021; --dark-orange: #b34e12; 
+            --navy: #0F172A; --bg: #fff9f5; 
+        }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: #333; overflow-x: hidden; }
+        
+        .btn-3d { transition: transform 0.1s, box-shadow 0.1s; cursor: pointer; border: none; position: relative; user-select: none; }
+        .btn-3d:active { transform: translateY(4px) !important; box-shadow: 0 2px 0px rgba(0,0,0,0.2) !important; }
+        
+        .sidebar-active { background: var(--orange) !important; color: white !important; box-shadow: 0 8px 20px rgba(243, 112, 33, 0.4); border-radius: 15px; }
+        .admin-sidebar { background: var(--red); border-right: 6px solid var(--orange); }
+        
+        .glass-bubble { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(25px); max-height: 90vh; overflow-y: auto; border-radius: 35px; border: 4px solid var(--orange); }
+        .kiosk-card { background: white; border-radius: 35px; box-shadow: 0 20px 0px #eee; border: 3px solid #fff; }
+        
+        @keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .live-dot { animation: pulse-live 1.5s infinite; }
+        .animate-fade { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="flex flex-col min-h-screen">
+<body>
+    <div id="root"></div>
 
-    <!-- Navbar -->
-    <nav class="p-6 flex justify-between items-center">
-        <div class="flex items-center gap-2">
-            <div class="bg-indigo-500 p-2 rounded-lg">
-                <i data-lucide="chef-hat" class="w-5 h-5 text-white"></i>
-            </div>
-            <span class="font-extrabold text-xl tracking-tight">RestoCheck</span>
-        </div>
-        <button onclick="openAdmin()" class="text-slate-400 hover:text-white"><i data-lucide="lock" class="w-6 h-6"></i></button>
-    </nav>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
 
-    <!-- Main Content -->
-    <main class="flex-grow flex flex-col items-center justify-center p-6 space-y-8">
-        
-        <!-- User Info -->
-        <div class="text-center" id="user-display">
-            <h2 class="text-3xl font-extrabold" id="staff-name">---</h2>
-            <p class="text-indigo-400 font-bold tracking-widest text-sm" id="staff-id">ID: ---</p>
-        </div>
+        const SUPABASE_URL = 'https://oapejxvzmrqkvodnetcr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_3JnTs-MS475tjzYWpK3d8g_4j81ObNT';
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        <!-- Network Shield -->
-        <div id="net-shield" class="flex items-center gap-3 bg-red-500/10 border border-red-500/20 px-6 py-3 rounded-full text-red-500 text-xs font-bold">
-            <i data-lucide="shield-alert" class="w-4 h-4"></i>
-            OUTSIDE RESTAURANT NETWORK
-        </div>
-
-        <!-- THE SENSOR BUTTON -->
-        <div class="relative">
-            <div id="ring-anim" class="absolute inset-0 rounded-full bg-indigo-500/20 scale-125 hidden animate-ping"></div>
-            <button id="scan-btn" onclick="startBiometricAuth()" disabled 
-                class="relative w-56 h-56 rounded-full bg-slate-800 border-4 border-slate-700 flex flex-col items-center justify-center gap-4 transition-all duration-500">
-                <i data-lucide="fingerprint" id="finger-icon" class="w-20 h-20 text-slate-600"></i>
-                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500" id="btn-text">Check WiFi</span>
-            </button>
-        </div>
-
-        <p class="text-slate-500 text-xs text-center max-w-[200px]">Connected to restaurant internet to enable biometric scanner</p>
-    </main>
-
-    <!-- Modal: Registration -->
-    <div id="reg-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6 hidden">
-        <div class="bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 border border-slate-800">
-            <h3 class="text-2xl font-black mb-2">Staff Setup</h3>
-            <p class="text-slate-400 text-sm mb-8">Enter your details to register this device for attendance.</p>
-            <input type="text" id="reg-name" placeholder="Full Name" class="w-full admin-input py-4 rounded-2xl mb-4 focus:ring-2 ring-indigo-500 outline-none">
-            <input type="text" id="reg-id" placeholder="Employee ID" class="w-full admin-input py-4 rounded-2xl mb-8 focus:ring-2 ring-indigo-500 outline-none">
-            <button onclick="saveRegistration()" class="w-full btn-glow py-4 rounded-2xl font-black uppercase tracking-widest text-sm text-white">Register Device</button>
-        </div>
-    </div>
-
-    <!-- Modal: Admin PIN -->
-    <div id="admin-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6 hidden">
-        <div class="bg-slate-900 w-full max-w-xs rounded-[3rem] p-10 text-center border border-slate-800">
-            <h3 class="text-xl font-black mb-6">Admin Access</h3>
-            <input type="password" id="pin-input" maxlength="4" placeholder="••••" class="w-full admin-input text-4xl py-4 rounded-2xl mb-6 outline-none">
-            <div class="flex gap-2">
-                <button onclick="closeAdmin()" class="flex-1 bg-slate-800 py-4 rounded-2xl font-bold">Back</button>
-                <button onclick="verifyPin()" class="flex-1 btn-glow py-4 rounded-2xl font-bold">Login</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Admin Panel -->
-    <div id="admin-panel" class="fixed inset-0 bg-slate-950 z-[60] p-6 overflow-y-auto hidden">
-        <div class="flex justify-between items-center mb-8">
-            <h2 class="text-2xl font-black uppercase italic">Dashboard</h2>
-            <button onclick="closePanel()" class="bg-slate-800 p-3 rounded-full"><i data-lucide="x"></i></button>
-        </div>
-        
-        <div class="grid grid-cols-2 gap-4 mb-8">
-            <div class="bg-slate-900 p-6 rounded-3xl border border-slate-800">
-                <p class="text-slate-500 text-[10px] font-black uppercase mb-1">Total Records</p>
-                <p id="count-total" class="text-3xl font-black text-indigo-400">0</p>
-            </div>
-            <button onclick="downloadExcel()" class="bg-indigo-600 p-6 rounded-3xl flex flex-col items-center justify-center gap-2">
-                <i data-lucide="file-spreadsheet"></i>
-                <span class="text-[10px] font-black uppercase">Export Excel</span>
-            </button>
-        </div>
-
-        <div class="bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden">
-            <table class="w-full text-left text-xs">
-                <thead class="bg-slate-800/50">
-                    <tr>
-                        <th class="p-4 font-black uppercase text-slate-500">Employee</th>
-                        <th class="p-4 font-black uppercase text-slate-500">In/Out</th>
-                    </tr>
-                </thead>
-                <tbody id="log-table" class="divide-y divide-slate-800"></tbody>
-            </table>
-        </div>
-        <button onclick="clearLogs()" class="w-full mt-10 py-4 text-red-500/50 text-[10px] font-black uppercase tracking-widest">Clear Database</button>
-    </div>
-
-    <script>
-        const TARGET_IP = "192.168.1.1";
-        const ADMIN_PIN = "7530";
-        let logs = JSON.parse(localStorage.getItem('logs')) || [];
-        let staff = JSON.parse(localStorage.getItem('staff')) || null;
-
-        // --- Initialization ---
-        window.onload = () => {
-            lucide.createIcons();
-            if (!staff) document.getElementById('reg-modal').classList.remove('hidden');
-            else {
-                document.getElementById('staff-name').innerText = staff.name;
-                document.getElementById('staff-id').innerText = `ID: ${staff.id}`;
-            }
-            checkNetwork();
+        const playSfx = (type) => {
+            const sounds = {
+                pop: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
+                success: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
+                error: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3'
+            };
+            const a = new Audio(sounds[type]); a.volume = 0.3; a.play();
         };
 
-        // --- Network Check ---
-        async function checkNetwork() {
-            const shield = document.getElementById('net-shield');
-            const btn = document.getElementById('scan-btn');
-            const icon = document.getElementById('finger-icon');
-            const txt = document.getElementById('btn-text');
+        const LiveShiftEngine = ({ startTime, dailyRate }) => {
+            const [seconds, setSeconds] = useState(0);
+            useEffect(() => {
+                const tick = () => setSeconds(Math.max(0, Math.floor((new Date() - new Date(startTime)) / 1000)));
+                tick(); const i = setInterval(tick, 1000); return () => clearInterval(i);
+            }, [startTime]);
+            const h = Math.floor(seconds / 3600); const m = Math.floor((seconds % 3600) / 60); const s = seconds % 60;
+            const liveMoney = ((seconds / 36000) * dailyRate).toFixed(2);
+            return (
+                <div className="space-y-6">
+                    <div className="bg-[#f37021] text-white p-6 rounded-[2rem] shadow-[0_6px_0px_#b34e12]">
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Shift Earnings (Live)</p>
+                        <p className="text-4xl font-black font-mono">Rs. {liveMoney}</p>
+                    </div>
+                    <div className="bg-rose-50 p-10 rounded-[3rem] border-4 border-dashed border-rose-100 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                            <div className="w-2.5 h-2.5 bg-rose-500 rounded-full live-dot"></div>
+                            <span className="text-[11px] font-black text-rose-500 uppercase tracking-widest">Live Duration</span>
+                        </div>
+                        <div className="text-5xl font-mono font-black text-rose-600 tracking-tighter">{h}h {m}m {s}s</div>
+                        <p className="text-slate-400 text-xs font-bold mt-4 italic underline decoration-rose-200 underline-offset-4 tracking-tight leading-none">Clocked in: {new Date(startTime).toLocaleTimeString()}</p>
+                    </div>
+                </div>
+            );
+        };
 
-            try {
-                const res = await fetch('https://api.ipify.org?format=json');
-                const data = await res.json();
-                const myIp = data.ip;
+        const App = () => {
+            const [view, setView] = useState('kiosk'); // kiosk | admin
+            const [adminTab, setAdminTab] = useState('overview');
+            const [pin, setPin] = useState('');
+            const [employee, setEmployee] = useState(null);
+            
+            // Admin Logic States
+            const [search, setSearch] = useState('');
+            const [timeFilter, setTimeFilter] = useState('all');
 
-                // SIMULATION: If IP is yours OR matches a 192 local range
-                if (myIp === TARGET_IP || myIp.startsWith("192.") || myIp.startsWith("10.")) {
-                    shield.className = "flex items-center gap-3 bg-indigo-500/10 border border-indigo-500/20 px-6 py-3 rounded-full text-indigo-400 text-xs font-bold";
-                    shield.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i> RESTAURANT NETWORK ACTIVE`;
-                    btn.disabled = false;
-                    btn.classList.add('btn-glow', 'border-indigo-400');
-                    btn.classList.remove('bg-slate-800', 'border-slate-700');
-                    icon.classList.replace('text-slate-600', 'text-white');
-                    txt.innerText = "Scan Finger";
-                    txt.classList.replace('text-slate-500', 'text-white');
-                    document.getElementById('ring-anim').classList.remove('hidden');
-                }
-            } catch (e) { console.log("Network check failed"); }
-            lucide.createIcons();
-        }
+            // Global Data
+            const [profiles, setProfiles] = useState([]);
+            const [payroll, setPayroll] = useState([]);
+            const [logs, setLogs] = useState([]);
+            const [currentTime, setCurrentTime] = useState(Date.now());
+            
+            const [editLog, setEditLog] = useState(null);
+            const [isStaffModal, setIsStaffModal] = useState(false);
+            const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '' });
 
-        // --- THE SENSOR LOGIC ---
-        async function startBiometricAuth() {
-            // Check if HTTPS
-            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                alert("Security Error: Biometric scanning requires an HTTPS connection (GitHub Pages).");
-                return;
-            }
+            useEffect(() => { 
+                refreshData();
+                const timer = setInterval(() => {
+                    setCurrentTime(Date.now());
+                    if (window.lucide) window.lucide.createIcons();
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [view, adminTab, employee]);
 
-            try {
-                // We use navigator.credentials.create to force the native OS sensor popup
-                const challenge = new Uint8Array(32);
-                window.crypto.getRandomValues(challenge);
+            const refreshData = async () => {
+                const { data: p } = await sb.from('profiles').select('*').order('created_at', { ascending: false });
+                const { data: pay } = await sb.from('monthly_payroll').select('*');
+                const { data: l } = await sb.from('attendance').select('*, profiles(full_name, daily_rate, display_id)').order('check_in', { ascending: false });
+                setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
+            };
 
-                const publicKeyCredentialCreationOptions = {
-                    challenge: challenge,
-                    rp: { name: "RestoCheck", id: window.location.hostname },
-                    user: {
-                        id: Uint8Array.from(staff.id, c => c.charCodeAt(0)),
-                        name: staff.name,
-                        displayName: staff.name
-                    },
-                    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-                    authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-                    timeout: 60000
-                };
+            const handleAdminAccess = () => {
+                playSfx('pop');
+                if (view === 'admin') return setView('kiosk');
+                const pass = prompt("Admin Password Required:");
+                if (pass === "75300") { setView('admin'); playSfx('success'); }
+                else if(pass !== null) { alert("Invalid Credentials"); playSfx('error'); }
+            };
 
-                // THIS TRIGGER IS THE ACTUAL POPUP
-                await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
-                
-                // If the code reaches here, the user successfully scanned their finger
-                confirmCheck();
+            const handleLogin = async () => {
+                playSfx('pop');
+                const { data: user } = await sb.from('profiles').select('*').eq('display_id', pin).single();
+                if (user) {
+                    const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
+                    const { data: stats } = await sb.from('monthly_payroll').select('*').eq('display_id', pin).single();
+                    setEmployee({ ...user, currentShift: session, stats });
+                    setPin(''); playSfx('success');
+                } else { playSfx('error'); setPin(''); }
+            };
 
-            } catch (err) {
-                // If user cancels or device has no fingerprint set up
-                console.error(err);
-                if (err.name === 'NotAllowedError') {
-                    alert("Verification Failed: Biometric was canceled or timed out.");
+            const toggleShift = async (type) => {
+                playSfx('pop');
+                if (type === 'in') {
+                    const { data } = await sb.from('attendance').insert([{ employee_id: employee.id }]).select().single();
+                    setEmployee(prev => ({ ...prev, currentShift: data }));
                 } else {
-                    // Fail-safe for desktop/unsupported browsers: Allow manual verification
-                    if(confirm("Native sensor issue. Verify manually as " + staff.name + "?")) {
-                        confirmCheck();
-                    }
+                    await sb.from('attendance').update({ check_out: new Date().toISOString() }).eq('id', employee.currentShift.id);
+                    setEmployee(null);
                 }
-            }
-        }
+                refreshData();
+            };
 
-        function confirmCheck() {
-            const now = new Date();
-            const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-            const date = now.toLocaleDateString();
+            // --- ADMIN CALC ENGINE ---
+            const adminProcessedData = useMemo(() => {
+                return profiles.map(profile => {
+                    const finished = payroll.find(r => r.display_id === profile.display_id) || { total_seconds_worked: 0 };
+                    const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
+                    let activeSecs = 0;
+                    if (activeShift) activeSecs = Math.max(0, Math.floor((currentTime - new Date(activeShift.check_in).getTime()) / 1000));
+                    const totalSecs = (Number(finished.total_seconds_worked) || 0) + activeSecs;
+                    const salary = ((totalSecs / 36000) * profile.daily_rate).toFixed(2);
+                    return { ...profile, totalSecs, salary, isActive: !!activeShift };
+                });
+            }, [profiles, payroll, logs, currentTime]);
 
-            let openLog = logs.find(l => l.date === date && l.out === '--' && l.id === staff.id);
+            // --- FILTERED ARCHIVES ---
+            const filteredArchives = useMemo(() => {
+                return logs.filter(l => {
+                    const matchSearch = l.profiles?.full_name.toLowerCase().includes(search.toLowerCase()) || l.profiles?.display_id.includes(search);
+                    const logDate = new Date(l.check_in);
+                    const now = new Date();
+                    let matchTime = true;
+                    if (timeFilter === 'day') matchTime = logDate.toDateString() === now.toDateString();
+                    if (timeFilter === 'week') matchTime = logDate >= new Date(now.setDate(now.getDate() - 7));
+                    if (timeFilter === 'month') matchTime = logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
+                    return matchSearch && matchTime;
+                }).map(log => {
+                    const end = log.check_out ? new Date(log.check_out) : new Date(currentTime);
+                    const diff = Math.floor((end - new Date(log.check_in)) / 1000);
+                    const earned = ((diff / 36000) * (log.profiles?.daily_rate || 0)).toFixed(2);
+                    return { ...log, diff, earned };
+                });
+            }, [logs, search, timeFilter, currentTime]);
 
-            if (openLog) {
-                openLog.out = time;
-            } else {
-                logs.push({ name: staff.name, id: staff.id, date: date, in: time, out: '--' });
-            }
+            const exportExcel = () => {
+                playSfx('pop');
+                let csv = "Employee,ID,Date,Clock-In,Clock-Out,Duration,Salary(PKR)\n";
+                filteredArchives.forEach(l => {
+                    const h = Math.floor(l.diff/3600); const m = Math.floor((l.diff%3600)/60);
+                    csv += `${l.profiles.full_name},${l.profiles.display_id},${new Date(l.check_in).toDateString()},${new Date(l.check_in).toLocaleTimeString()},${l.check_out ? new Date(l.check_out).toLocaleTimeString() : 'LIVE'},${h}h ${m}m,${l.earned}\n`;
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `Archives_Report_${new Date().toLocaleDateString()}.csv`;
+                a.click(); playSfx('success');
+            };
 
-            localStorage.setItem('logs', JSON.stringify(logs));
-            document.getElementById('scan-btn').classList.replace('btn-glow', 'bg-emerald-500');
-            document.getElementById('btn-text').innerText = "Verified!";
-            setTimeout(() => location.reload(), 2000);
-        }
+            return (
+                <div className="min-h-screen flex flex-col">
+                    {/* Header */}
+                    <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center sticky top-0 z-50">
+                        <div className="flex items-center gap-3">
+                            <p className="text-white font-black text-3xl tracking-tighter leading-none uppercase">OVEN <span className="text-[#f37021]">X</span></p>
+                        </div>
+                        <div className="flex items-center gap-8">
+                            <div className="text-right hidden md:block text-white">
+                                <p className="text-[10px] font-black uppercase tracking-widest opacity-60">System Time</p>
+                                <p className="text-sm font-black">{new Date(currentTime).toLocaleTimeString()}</p>
+                            </div>
+                            <button onClick={handleAdminAccess} className="btn-3d bg-[#f37021] text-white px-8 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-[0_4px_0px_#b34e12]">
+                                {view === 'admin' ? '← BACK TO KIOSK' : 'ADMIN PANEL'}
+                            </button>
+                        </div>
+                    </nav>
 
-        // --- Admin Functions ---
-        function openAdmin() { document.getElementById('admin-modal').classList.remove('hidden'); }
-        function closeAdmin() { document.getElementById('admin-modal').classList.add('hidden'); }
-        function verifyPin() {
-            if (document.getElementById('pin-input').value === ADMIN_PIN) {
-                document.getElementById('admin-modal').classList.add('hidden');
-                document.getElementById('admin-panel').classList.remove('hidden');
-                loadAdminData();
-            } else { alert("Wrong PIN"); }
-        }
-        function closePanel() { document.getElementById('admin-panel').classList.add('hidden'); }
-        
-        function loadAdminData() {
-            const table = document.getElementById('log-table');
-            table.innerHTML = '';
-            logs.slice().reverse().forEach(l => {
-                table.innerHTML += `<tr>
-                    <td class="p-4 font-bold">${l.name}<br><span class="text-[8px] text-slate-500">${l.date}</span></td>
-                    <td class="p-4 font-mono text-indigo-400">IN: ${l.in}<br><span class="text-orange-400">OUT: ${l.out}</span></td>
-                </tr>`;
-            });
-            document.getElementById('count-total').innerText = logs.length;
-        }
+                    {view === 'kiosk' ? (
+                        /* --- EMPLOYEE PORTAL --- */
+                        <div className="flex-1 flex items-center justify-center p-6 bg-[#F1F5F9] relative overflow-hidden">
+                            {!employee ? (
+                                <div className="kiosk-card p-12 max-w-sm w-full text-center animate-fade">
+                                    <h1 className="text-2xl font-black mb-8 text-[#8b0000] italic">STAFF LOGIN</h1>
+                                    <div className="h-24 bg-slate-50 border-4 border-dashed rounded-[2.5rem] flex items-center justify-center text-5xl font-mono tracking-[0.4em] text-[#f37021] mb-8 font-black leading-none">{pin || '----'}</div>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        {[1,2,3,4,5,6,7,8,9,'C',0,'OK'].map(k => (
+                                            <button key={k} onClick={() => {playSfx('pop'); k==='C'?setPin(''):k==='OK'?handleLogin():setPin(p=>(p+k).slice(0,4))}}
+                                                className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
+                                    <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter italic leading-none">{employee.full_name}</h2>
+                                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">Employee ID: {employee.display_id}</p>
+                                    <div className="grid grid-cols-2 gap-5 mb-8">
+                                        <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Previous PKR</p>
+                                            <p className="text-2xl font-black text-slate-800">Rs. {employee.stats?.calculated_salary?.toLocaleString() || 0}</p>
+                                        </div>
+                                        <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Shift Count</p>
+                                            <p className="text-2xl font-black text-slate-800 font-mono">{employee.stats?.days_worked || 0}</p>
+                                        </div>
+                                    </div>
+                                    {employee.currentShift ? (
+                                        <div>
+                                            <LiveShiftEngine startTime={employee.currentShift.check_in} dailyRate={employee.daily_rate} />
+                                            <button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] italic">FINISH SHIFT</button>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-[#fff9f5] p-12 rounded-[3.5rem] border-4 border-[#f37021] border-dashed">
+                                            <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight italic uppercase opacity-30">Shift Waiting</h3>
+                                            <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] italic">START SHIFT</button>
+                                        </div>
+                                    )}
+                                    <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] tracking-widest uppercase">Logout</button>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* --- 5-STAR ADMIN PANEL (OVENX THEME) --- */
+                        <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
+                            <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021]">
+                                <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
+                                <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
+                                <button onClick={()=>setAdminTab('logs')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='logs'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="clock"></i> History Logs</button>
+                            </aside>
 
-        function downloadExcel() {
-            const ws = XLSX.utils.json_to_sheet(logs);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-            XLSX.writeFile(wb, "Attendance_Report.xlsx");
-        }
+                            <main className="flex-1 p-8 md:p-12 overflow-y-auto bg-[#F8FAFC]">
+                                {adminTab === 'overview' && (
+                                    <div className="animate-fade">
+                                        <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] mb-10 uppercase">Intelligence Summary</h2>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
+                                                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">On-Duty Staff</p><p className="text-5xl font-black text-emerald-500 italic">{logs.filter(l=>!l.check_out).length}</p></div>
+                                                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><i data-lucide="activity"></i></div>
+                                            </div>
+                                            <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
+                                                <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Live Monthly Cost</p><p className="text-3xl font-black italic tracking-tighter">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
+                                                <i data-lucide="zap" className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5"></i>
+                                            </div>
+                                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
+                                                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">Registered Members</p><p className="text-5xl font-black text-slate-900 italic">{profiles.length}</p></div>
+                                                <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><i data-lucide="users"></i></div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden">
+                                            <table className="w-full text-left font-bold text-sm italic">
+                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Live Shift Time</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Net Payable</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {adminProcessedData.map((r, i) => (
+                                                        <tr key={i} className="hover:bg-slate-50 transition-all">
+                                                            <td className="px-10 py-7 text-base flex items-center gap-3">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
+                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">{Math.floor(r.totalSecs/3600)}h {Math.floor((r.totalSecs%3600)/60)}m {r.totalSecs%60}s</td>
+                                                            <td className="px-10 py-7 text-center font-black"><span className="bg-slate-100 px-5 py-2 rounded-xl text-slate-600">{(r.totalSecs/36000).toFixed(2)}</span></td>
+                                                            <td className="px-10 py-7 text-right font-black text-[#f37021] text-2xl tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
 
-        function saveRegistration() {
-            const name = document.getElementById('reg-name').value;
-            const id = document.getElementById('reg-id').value;
-            if (name && id) {
-                localStorage.setItem('staff', JSON.stringify({ name, id }));
-                location.reload();
-            }
-        }
+                                {adminTab === 'logs' && (
+                                    <div className="animate-fade">
+                                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
+                                            <div>
+                                                <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] leading-none uppercase">Archives</h2>
+                                                <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-[11px]">Comprehensive Shift Performance</p>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm w-full lg:w-auto">
+                                                <input placeholder="Search Name/ID..." value={search} onChange={(e)=>setSearch(e.target.value)}
+                                                    className="pl-6 pr-4 py-3 bg-slate-50 rounded-2xl text-xs font-bold w-48 outline-none border focus:border-[#f37021] transition-all" />
+                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                    {['all','day','week','month'].map(t => (
+                                                        <button key={t} onClick={()=>setTimeFilter(t)} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase ${timeFilter===t?'bg-white text-[#f37021] shadow-sm':'text-slate-400'}`}>{t}</button>
+                                                    ))}
+                                                </div>
+                                                <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a] tracking-widest">
+                                                    <i data-lucide="download"></i> EXCEL REPORT
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left text-sm min-w-[900px]">
+                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                                        <tr><th className="px-8 py-6">Staff</th><th className="px-8 py-6">Timeline</th><th className="px-8 py-6">Work Duration</th><th className="px-8 py-6 text-center">Earnings (PKR)</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y text-slate-800">
+                                                        {filteredArchives.map((l, i) => (
+                                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                                <td className="px-8 py-6"><p className="font-black text-slate-900 leading-none mb-1">{l.profiles?.full_name}</p><p className="text-[10px] text-[#f37021] not-italic font-black">ID: {l.profiles?.display_id}</p></td>
+                                                                <td className="px-8 py-6 font-mono text-[11px]">
+                                                                    <div className="text-emerald-600 mb-1">IN: {new Date(l.check_in).toLocaleString()}</div>
+                                                                    <div className={l.check_out ? 'text-[#8b0000]' : 'text-indigo-600 live-dot font-black'}>OUT: {l.check_out ? new Date(l.check_out).toLocaleString() : 'WORKING...'}</div>
+                                                                </td>
+                                                                <td className="px-8 py-6 font-mono text-slate-400">{Math.floor(l.diff/3600)}h {Math.floor((l.diff%3600)/60)}m {l.diff%60}s</td>
+                                                                <td className="px-8 py-6 text-center text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
+                                                                <td className="px-8 py-6 text-right flex justify-end gap-2">
+                                                                    <button onClick={()=>{playSfx('pop'); setEditLog(l)}} className="p-3 text-[#f37021] bg-[#fff9f5] rounded-2xl btn-3d shadow-[0_3px_0px_#eee]"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
+                                                                    <button onClick={async ()=>{if(confirm("Delete entry?")){await sb.from('attendance').delete().eq('id',l.id); refreshData(); playSfx('success');}}} className="p-3 text-white bg-[#8b0000] rounded-2xl btn-3d shadow-[0_3px_0px_#5e0000]"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
-        function clearLogs() { if(confirm("Delete all data?")) { localStorage.clear(); location.reload(); } }
+                                {adminTab === 'staff' && (
+                                    <div className="animate-fade">
+                                        <div className="flex justify-between items-center mb-12">
+                                            <h2 className="text-4xl font-black tracking-tighter italic uppercase text-[#8b0000]">Human Resources</h2>
+                                            <button onClick={()=>{playSfx('pop'); setIsStaffModal(true)}} className="bg-[#f37021] text-white px-8 py-4 rounded-[2rem] font-black text-sm flex gap-2 btn-3d shadow-[0_5px_0px_#b34e12]"><i data-lucide="plus"></i> REGISTER STAFF</button>
+                                        </div>
+                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
+                                            <table className="w-full text-left text-sm font-bold">
+                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b tracking-widest">
+                                                    <tr><th className="px-10 py-6">Member Details</th><th className="px-10 py-6 text-center">PIN ID</th><th className="px-10 py-6 text-center">Daily PKR</th><th className="px-10 py-6 text-right">Settings</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {profiles.map(p => (
+                                                        <tr key={p.id} className="hover:bg-slate-50/50">
+                                                            <td className="px-10 py-6 text-base text-slate-900 font-black">{p.full_name}</td>
+                                                            <td className="px-10 py-6 font-mono text-[#f37021] text-center tracking-[0.4em] font-black">{p.display_id}</td>
+                                                            <td className="px-10 py-6 text-center text-slate-400 font-bold tracking-tight">Rs. {p.daily_rate.toLocaleString()} <span className="opacity-40 text-[10px]">/ 10h</span></td>
+                                                            <td className="px-10 py-6 text-right">
+                                                                <button onClick={async ()=>{if(confirm("Permanently delete?")){await sb.from('profiles').delete().eq('id',p.id); refreshData(); playSfx('success');}}} className="bg-[#8b0000] text-white p-3 rounded-2xl btn-3d shadow-[0_3px_0px_#5e0000] ml-auto block transition-all hover:scale-105"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </main>
+                        </div>
+                    )}
+
+                    {/* MODALS - THE BUBBLE WRAPPERS */}
+                    {isStaffModal && (
+                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
+                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] tracking-tighter uppercase leading-none">Register Member</h3>
+                                <div className="space-y-6">
+                                    <input required placeholder="Legal Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none focus:border-[#f37021] text-center italic" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
+                                    <input required placeholder="PIN Access" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono font-bold outline-none focus:border-[#f37021] text-center tracking-[0.5em]" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
+                                    <input required placeholder="Daily PKR (10h)" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none focus:border-[#f37021] text-center italic" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
+                                    <div className="flex gap-4 pt-6">
+                                        <button onClick={()=>setIsStaffModal(false)} className="flex-1 font-black text-slate-400 uppercase tracking-widest text-xs">Cancel</button>
+                                        <button onClick={async ()=>{playSfx('pop'); await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate}]); setIsStaffModal(false); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] tracking-widest uppercase text-xs">Activate Profile</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {editLog && (
+                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
+                                <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] leading-none tracking-tighter uppercase underline underline-offset-8 decoration-[#f37021]">Override Shift</h3>
+                                <div className="space-y-10 text-left font-bold italic">
+                                    <div className="space-y-2"><label className="text-[10px] text-slate-400 uppercase tracking-widest ml-6 mb-2 block font-black">Shift Start Time</label>
+                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none focus:border-[#f37021] shadow-inner" value={editLog.check_in.slice(0, 16)} onChange={e=>setEditLog({...editLog, check_in:e.target.value})} /></div>
+                                    <div className="space-y-2"><label className="text-[10px] text-slate-400 uppercase tracking-widest ml-6 mb-2 block font-black">Shift End Time</label>
+                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none focus:border-[#f37021] shadow-inner" value={editLog.check_out?.slice(0, 16) || ''} onChange={e=>setEditLog({...editLog, check_out:e.target.value})} /></div>
+                                    <div className="flex gap-6 pt-6 text-center items-center">
+                                        <button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase tracking-widest text-xs font-black">Discard</button>
+                                        <button onClick={async ()=>{playSfx('pop'); await sb.from('attendance').update({check_in:editLog.check_in, check_out:editLog.check_out}).eq('id',editLog.id); setEditLog(null); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] shadow-[0_6px_0px_#3730a3] btn-3d tracking-widest uppercase text-xs">Update Record</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
