@@ -144,7 +144,7 @@
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // REAL-TIME ENGINE: Syncs dashboard every 2 seconds
+            // REAL-TIME ENGINE
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
@@ -273,38 +273,37 @@
                 startCycle.setHours(10, 0, 0, 0);
 
                 return profiles.map(profile => {
-                    const finished = payroll.find(r => r.display_id === profile.display_id) || { total_seconds_worked: 0 };
                     const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
+                    const shiftsThisCycle = logs.filter(l => l.employee_id === profile.id && new Date(l.check_in) >= startCycle);
                     
-                    const workedThisCycle = logs.some(l => 
-                        l.employee_id === profile.id && 
-                        new Date(l.check_in) >= startCycle
-                    );
+                    // CALCULATE SECONDS WORKED THIS SPECIFIC DAY/CYCLE
+                    let cycleSecs = 0;
+                    shiftsThisCycle.forEach(l => {
+                        const start = new Date(l.check_in).getTime();
+                        const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
+                        cycleSecs += Math.max(0, Math.floor((end - start) / 1000));
+                    });
 
-                    let activeSecs = 0;
-                    if (activeShift) {
-                        activeSecs = Math.max(0, Math.floor((currentTime - new Date(activeShift.check_in).getTime()) / 1000));
-                    }
-                    const totalSecs = (Number(finished.total_seconds_worked) || 0) + activeSecs;
-                    const salary = ((totalSecs / 36000) * profile.daily_rate).toFixed(2);
+                    const salary = ((cycleSecs / 36000) * profile.daily_rate).toFixed(2);
+                    const lastShift = shiftsThisCycle[0];
 
                     let status = "Offline";
                     if (activeShift) status = "Present";
-                    else if (workedThisCycle) status = "Closed";
+                    else if (shiftsThisCycle.length > 0) status = "Closed";
                     else if (curH >= 10 || curH < 2) status = "Pending";
                     else if (curH >= 2 && curH < 10) status = "Holiday";
 
                     return { 
                         ...profile, 
-                        totalSecs, 
+                        totalSecs: cycleSecs, 
                         salary, 
                         isActive: !!activeShift, 
                         activeShiftId: activeShift?.id, 
-                        uniform: activeShift ? activeShift.uniform : null,
+                        uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : null),
                         adminStatus: status
                     };
                 });
-            }, [profiles, payroll, logs, currentTime]);
+            }, [profiles, logs, currentTime]);
 
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => {
@@ -327,12 +326,13 @@
 
             const exportExcel = () => {
                 playSfx('pop');
-                let csv = "Employee Name,ID,Status,Uniform,Total Hours,Salary(PKR)\n";
+                let csv = "Employee Name,ID,Daily Status,Uniform,Time Worked Today,Cycle Earnings(PKR)\n";
                 adminProcessedData.forEach(r => {
                     const h = Math.floor(r.totalSecs/3600); 
                     const m = Math.floor((r.totalSecs%3600)/60);
-                    const uniformMark = r.isActive ? (r.uniform ? "OK" : "OFF") : "N/A";
-                    csv += `${r.full_name},${r.display_id},${r.adminStatus},${uniformMark},${h}h ${m}m,${r.salary}\n`;
+                    const uniformMark = r.uniform === null ? "N/A" : (r.uniform ? "OK" : "OFF");
+                    const statusText = r.adminStatus === 'Holiday' ? 'ABSENT / HOLIDAY' : r.adminStatus;
+                    csv += `${r.full_name},${r.display_id},${statusText},${uniformMark},${h}h ${m}m,${r.salary}\n`;
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
@@ -383,12 +383,14 @@
                                     <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">ID: {employee.display_id}</p>
                                     <div className="grid grid-cols-2 gap-5 mb-8">
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Previous PKR</p>
-                                            <p className="text-2xl font-black text-slate-800">Rs. {employee.stats?.calculated_salary?.toLocaleString() || 0}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Cycle Earnings</p>
+                                            <p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p>
                                         </div>
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Shift Count</p>
-                                            <p className="text-2xl font-black text-slate-800 font-mono">{employee.stats?.days_worked || 0}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Time (Today)</p>
+                                            <p className="text-2xl font-black text-slate-800 font-mono">
+                                                {Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h
+                                            </p>
                                         </div>
                                     </div>
                                     {employee.currentShift ? (
@@ -440,17 +442,17 @@
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden">
                                             <table className="w-full text-left font-bold text-sm italic">
                                                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6">Live Shift Time</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Net Payable</th></tr>
+                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6">Shift Time (Today)</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Today's PKR</th></tr>
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {adminProcessedData.map((r, i) => (
                                                         <tr key={i} className="hover:bg-slate-50 transition-all">
                                                             <td className="px-10 py-7 text-base flex items-center gap-3">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
                                                             <td className="px-10 py-7">
-                                                                <div className="flex items-center gap-2">
-                                                                    {r.isActive && (
-                                                                        <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)}
-                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all btn-3d ${r.uniform ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-200 text-slate-400 shadow-[0_4px_0px_#cbd5e1]'}`}>
+                                                                <div className="flex items-center gap-3">
+                                                                    {(r.isActive || r.adminStatus === 'Closed') && (
+                                                                        <button onClick={() => { if(r.isActive) toggleUniform(r.activeShiftId, r.uniform) }}
+                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
                                                                             {r.uniform ? 'Uniform OK' : 'Uniform OFF'}
                                                                         </button>
                                                                     )}
@@ -558,9 +560,9 @@
                         </div>
                     )}
 
-                    {/* MODALS SECTION */}
+                    {/* MODALS */}
                     {isStaffModal && (
-                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
                                 <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Register Staff</h3>
                                 <div className="space-y-6">
@@ -571,7 +573,7 @@
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("FAILED: Ensure columns shift_start/shift_end exist."); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
                                 </div>
                             </div>
                         </div>
