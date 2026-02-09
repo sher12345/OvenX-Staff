@@ -337,7 +337,9 @@
             const [view, setView] = useState('kiosk');
             const [adminTab, setAdminTab] = useState('overview');
             const [scope, setScope] = useState('day');
-            
+            const [dateMode, setDateMode] = useState('rolling');
+const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             const [pin, setPin] = useState('');
             const [employee, setEmployee] = useState(null);
             const [search, setSearch] = useState('');
@@ -473,51 +475,80 @@
 
             // --- DATA ENGINES ---
             const adminProcessedData = useMemo(() => {
-                const now = new Date(currentTime);
-                const curH = now.getHours();
-                
-                let startPoint = new Date(now);
-                if (scope === 'day') {
-                    if (curH < 10) startPoint.setDate(now.getDate() - 1);
-                    startPoint.setHours(10, 0, 0, 0);
-                } else if (scope === 'week') {
-                    startPoint.setDate(now.getDate() - 7);
-                    startPoint.setHours(0, 0, 0, 0);
-                } else if (scope === 'month') {
-                    startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-                }
+    let startPoint, endPoint;
+    const now = new Date(currentTime);
+    
+    if (dateMode === 'custom' && startDate && endDate) {
+        // Custom date range: Start of start date to end of end date
+        startPoint = new Date(startDate);
+        startPoint.setHours(0, 0, 0, 0);
+        endPoint = new Date(endDate);
+        endPoint.setHours(23, 59, 59, 999);
+    } else {
+        // Rolling mode (existing logic)
+        const curH = now.getHours();
+        startPoint = new Date(now);
+        
+        if (scope === 'day') {
+            if (curH < 10) startPoint.setDate(now.getDate() - 1);
+            startPoint.setHours(10, 0, 0, 0);
+            endPoint = new Date(startPoint);
+            endPoint.setDate(endPoint.getDate() + 1);
+        } else if (scope === 'week') {
+            startPoint.setDate(now.getDate() - 7);
+            startPoint.setHours(0, 0, 0, 0);
+            endPoint = now;
+        } else if (scope === 'month') {
+            startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+            endPoint = now;
+        }
+    }
 
-                return profiles.map(profile => {
-                    const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
-                    const scopeLogs = logs.filter(l => l.employee_id === profile.id && new Date(l.check_in) >= startPoint);
-                    
-                    let scopeSecs = 0;
-                    scopeLogs.forEach(l => {
-                        const start = new Date(l.check_in).getTime();
-                        const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
-                        scopeSecs += Math.max(0, Math.floor((end - start) / 1000));
-                    });
+    return profiles.map(profile => {
+        const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
+        
+        // Filter logs within the selected date range
+        const scopeLogs = logs.filter(l => {
+            const checkIn = new Date(l.check_in);
+            return l.employee_id === profile.id && checkIn >= startPoint && checkIn <= endPoint;
+        });
+        
+        let scopeSecs = 0;
+        scopeLogs.forEach(l => {
+            const start = new Date(l.check_in).getTime();
+            const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
+            // Cap end time at the range end if currently working
+            const cappedEnd = end > endPoint.getTime() ? endPoint.getTime() : end;
+            scopeSecs += Math.max(0, Math.floor((cappedEnd - start) / 1000));
+        });
 
-                    const salary = ((scopeSecs / 36000) * profile.daily_rate).toFixed(2);
-                    const lastShift = scopeLogs[0];
+        const salary = ((scopeSecs / 36000) * profile.daily_rate).toFixed(2);
+        const lastShift = scopeLogs[0];
 
-                    let status = "Offline";
-                    if (activeShift) status = "Present";
-                    else if (scopeLogs.length > 0 && scope === 'day') status = "Closed";
-                    else if (curH >= 10 || curH < 2) status = "Pending";
-                    else status = "Holiday";
+        let status = "Offline";
+        if (activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint) {
+            status = "Present";
+        } else if (scopeLogs.length > 0) {
+            status = "Closed";
+        } else if (dateMode === 'custom') {
+            status = "No Data";
+        } else if (scope === 'day' && (new Date().getHours() >= 10 || new Date().getHours() < 2)) {
+            status = "Pending";
+        } else {
+            status = "Holiday";
+        }
 
-                    return { 
-                        ...profile, 
-                        totalSecs: scopeSecs, 
-                        salary, 
-                        isActive: !!activeShift, 
-                        activeShiftId: activeShift?.id || lastShift?.id, 
-                        uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : true),
-                        adminStatus: status
-                    };
-                });
-            }, [profiles, logs, currentTime, scope]);
+        return { 
+            ...profile, 
+            totalSecs: scopeSecs, 
+            salary, 
+            isActive: !!(activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint), 
+            activeShiftId: activeShift?.id || lastShift?.id, 
+            uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : true),
+            adminStatus: status
+        };
+    });
+}, [profiles, logs, currentTime, scope, dateMode, startDate, endDate]);
 
             const exportExcel = () => {
     playSfx('pop');
@@ -725,62 +756,114 @@
                                 {/* SCROLLING DASHBOARD AREA */}
                                 <main className="flex-1 p-8 md:p-12 overflow-y-auto custom-scroll">
                                     {adminTab === 'overview' && (
-                                        <div className="animate-fade uppercase font-black">
-                                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-4">
-                                                <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Intelligence Summary</h2>
-                                                <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border shadow-sm uppercase">
-                                                    {['day', 'week', 'month'].map(t => (
-                                                        <button key={t} onClick={() => setScope(t)} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${scope === t ? 'bg-[#f37021] text-white' : 'text-slate-400 hover:bg-slate-50'}`}>{t}</button>
-                                                    ))}
-                                                    <div className="w-[1px] h-6 bg-slate-100 mx-2"></div>
-                                                    <button onClick={exportExcel} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"><Icons.download className="w-5 h-5" /></button>
-                                                </div>
-                                            </div>
+    <div className="animate-fade uppercase font-black">
+        {/* HEADER WITH DATE CONTROLS */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-4">
+            <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Intelligence Summary</h2>
+            
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-white p-3 rounded-2xl border shadow-sm uppercase">
+                {/* Mode Toggle */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                    <button onClick={() => setDateMode('rolling')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'rolling' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Rolling</button>
+                    <button onClick={() => setDateMode('custom')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'custom' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Custom</button>
+                </div>
 
-                                            <VisualIntelligence logs={logs} adminData={adminProcessedData} scope={scope} />
+                <div className="hidden sm:block w-[1px] h-6 bg-slate-200"></div>
 
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                                                <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
-                                                    <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">On-Duty</p><p className="text-5xl font-black text-emerald-500">{logs.filter(l=>!l.check_out).length}</p></div>
-                                                    <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><Icons.activity className="w-6 h-6" /></div>
-                                                </div>
-                                                <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
-                                                    <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase mb-1">{scope} Period Cost</p><p className="text-3xl font-black tracking-tighter uppercase">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
-                                                    <Icons.zap className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5" />
-                                                </div>
-                                                <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
-                                                    <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Members</p><p className="text-5xl font-black text-slate-900">{profiles.length}</p></div>
-                                                    <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><Icons.users className="w-6 h-6" /></div>
-                                                </div>
-                                            </div>
+                {/* Rolling Scope Buttons */}
+                {dateMode === 'rolling' && ['day', 'week', 'month'].map(t => (
+                    <button key={t} onClick={() => setScope(t)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${scope === t ? 'bg-[#f37021] text-white' : 'text-slate-400 hover:bg-slate-50'}`}>{t}</button>
+                ))}
 
-                                            <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
-                                                <table className="w-full text-left text-sm uppercase">
-                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                                        <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6 text-center">Work Days</th><th className="px-10 py-6 text-right">Scope PKR</th></tr>
-                                                    </thead>
-                                                    <tbody className="divide-y font-bold">
-                                                        {adminProcessedData.map((r, i) => (
-                                                            <tr key={i} className="hover:bg-slate-50 transition-all">
-                                                                <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
-                                                                <td className="px-10 py-7 uppercase">
-                                                                    <div className="flex items-center gap-3">
-                                                                        {(r.isActive || r.adminStatus === 'Closed') && (
-                                                                            <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>{r.uniform ? 'OK' : 'OFF'}</button>
-                                                                        )}
-                                                                        <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${r.adminStatus === 'Present' ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{r.adminStatus}</span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-10 py-7 text-center font-black">{(r.totalSecs/36000).toFixed(2)}</td>
-                                                                <td className="px-10 py-7 text-right text-[#f37021] text-2xl font-black tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                {/* Custom Date Range Pickers */}
+                {dateMode === 'custom' && (
+                    <div className="flex items-center gap-2">
+                        <div className="flex flex-col">
+                            <label className="text-[8px] text-slate-400 ml-1">FROM</label>
+                            <input 
+                                type="date" 
+                                value={startDate} 
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
+                            />
+                        </div>
+                        <span className="text-slate-400 mt-4">→</span>
+                        <div className="flex flex-col">
+                            <label className="text-[8px] text-slate-400 ml-1">TO</label>
+                            <input 
+                                type="date" 
+                                value={endDate} 
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                <div className="hidden sm:block w-[1px] h-6 bg-slate-100"></div>
+                <button onClick={exportExcel} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"><Icons.download className="w-5 h-5" /></button>
+            </div>
+        </div>
+
+        {/* DATE RANGE DISPLAY */}
+        <div className="mb-6 flex items-center gap-2">
+            <div className="bg-[#f37021] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">
+                {dateMode === 'rolling' ? `${scope} View` : 'Custom Range'}
+            </div>
+            <div className="text-slate-500 text-[11px] font-bold">
+                {dateMode === 'rolling' ? (
+                    scope === 'day' ? 'Last 24 Hours (10AM - 10AM)' :
+                    scope === 'week' ? 'Last 7 Days' :
+                    'Current Month'
+                ) : (
+                    `${new Date(startDate).toLocaleDateString()} → ${new Date(endDate).toLocaleDateString()}`
+                )}
+            </div>
+        </div>
+
+        <VisualIntelligence logs={logs} adminData={adminProcessedData} scope={scope} />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">On-Duty</p><p className="text-5xl font-black text-emerald-500">{logs.filter(l=>!l.check_out).length}</p></div>
+                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><Icons.activity className="w-6 h-6" /></div>
+            </div>
+            <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
+                <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase mb-1">{dateMode === 'rolling' ? scope : 'Custom'} Period Cost</p><p className="text-3xl font-black tracking-tighter uppercase">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
+                <Icons.zap className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5" />
+            </div>
+            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Members</p><p className="text-5xl font-black text-slate-900">{profiles.length}</p></div>
+                <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><Icons.users className="w-6 h-6" /></div>
+            </div>
+        </div>
+
+        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
+            <table className="w-full text-left text-sm uppercase">
+                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6 text-center">Work Days</th><th className="px-10 py-6 text-right">Scope PKR</th></tr>
+                </thead>
+                <tbody className="divide-y font-bold">
+                    {adminProcessedData.map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-all">
+                            <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
+                            <td className="px-10 py-7 uppercase">
+                                <div className="flex items-center gap-3">
+                                    {(r.isActive || r.adminStatus === 'Closed') && (
+                                        <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>{r.uniform ? 'OK' : 'OFF'}</button>
                                     )}
-
+                                    <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${r.adminStatus === 'Present' ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{r.adminStatus}</span>
+                                </div>
+                            </td>
+                            <td className="px-10 py-7 text-center font-black">{(r.totalSecs/36000).toFixed(2)}</td>
+                            <td className="px-10 py-7 text-right text-[#f37021] text-2xl font-black tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+)}
                                     {adminTab === 'staff' && (
                                         <div className="animate-fade font-black uppercase">
                                             <div className="flex justify-between items-center mb-12">
