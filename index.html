@@ -17,16 +17,16 @@
             --navy: #0F172A; --bg: #fff9f5; 
         }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg); color: #333; overflow-x: hidden; }
-        
+
         .btn-3d { transition: transform 0.1s, box-shadow 0.1s; cursor: pointer; border: none; position: relative; user-select: none; }
         .btn-3d:active { transform: translateY(4px) !important; box-shadow: 0 2px 0px rgba(0,0,0,0.2) !important; }
-        
+
         .sidebar-active { background: var(--orange) !important; color: white !important; box-shadow: 0 8px 20px rgba(243, 112, 33, 0.4); border-radius: 15px; }
         .admin-sidebar { background: var(--red); border-right: 6px solid var(--orange); }
-        
+
         .glass-bubble { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(25px); max-height: 90vh; overflow-y: auto; border-radius: 35px; border: 4px solid var(--orange); }
         .kiosk-card { background: white; border-radius: 35px; box-shadow: 0 20px 0px #eee; border: 3px solid #fff; }
-        
+
         @keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         .live-dot { animation: pulse-live 1.5s infinite; }
         .animate-fade { animation: fadeIn 0.3s ease-out forwards; }
@@ -42,6 +42,10 @@
         const SUPABASE_URL = 'https://oapejxvzmrqkvodnetcr.supabase.co';
         const SUPABASE_KEY = 'sb_publishable_3JnTs-MS475tjzYWpK3d8g_4j81ObNT';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // --- BIOMETRIC HELPERS ---
+        const bufferToBase64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const strToBuffer = (str) => new TextEncoder().encode(str);
 
         const playSfx = (type) => {
             const sounds = {
@@ -79,21 +83,16 @@
         };
 
         const App = () => {
-            const [view, setView] = useState('kiosk'); // kiosk | admin
+            const [view, setView] = useState('kiosk');
             const [adminTab, setAdminTab] = useState('overview');
             const [pin, setPin] = useState('');
             const [employee, setEmployee] = useState(null);
-            
-            // Admin Logic States
             const [search, setSearch] = useState('');
             const [timeFilter, setTimeFilter] = useState('all');
-
-            // Global Data
             const [profiles, setProfiles] = useState([]);
             const [payroll, setPayroll] = useState([]);
             const [logs, setLogs] = useState([]);
             const [currentTime, setCurrentTime] = useState(Date.now());
-            
             const [editLog, setEditLog] = useState(null);
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '' });
@@ -112,6 +111,68 @@
                 const { data: pay } = await sb.from('monthly_payroll').select('*');
                 const { data: l } = await sb.from('attendance').select('*, profiles(full_name, daily_rate, display_id)').order('check_in', { ascending: false });
                 setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
+            };
+
+            // --- FIXED FINGERPRINT REGISTRATION (ADMIN) ---
+            const handleRegisterFinger = async (user) => {
+                try {
+                    playSfx('pop');
+                    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                    const createOptions = {
+                        publicKey: {
+                            challenge,
+                            rp: { name: "OvenX System" }, // Automatic domain detection
+                            user: {
+                                id: strToBuffer(user.id),
+                                name: user.display_id,
+                                displayName: user.full_name
+                            },
+                            pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                            authenticatorSelection: {
+                                authenticatorAttachment: "platform",
+                                residentKey: "required",
+                                userVerification: "required"
+                            },
+                            timeout: 60000
+                        }
+                    };
+                    const credential = await navigator.credentials.create(createOptions);
+                    const credIdB64 = bufferToBase64(credential.rawId);
+                    await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
+                    alert("Success! Fingerprint linked to " + user.full_name);
+                    playSfx('success');
+                    refreshData();
+                } catch (err) {
+                    console.error(err);
+                    alert("Failed: " + err.message);
+                }
+            };
+
+            // --- FIXED FINGERPRINT LOGIN (KIOSK) ---
+            const handleFingerprintLogin = async () => {
+                try {
+                    playSfx('pop');
+                    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                    const assertion = await navigator.credentials.get({
+                        publicKey: { challenge, userVerification: "required" }
+                    });
+                    if (!assertion) return;
+
+                    const credIdB64 = bufferToBase64(assertion.rawId);
+                    const { data: user } = await sb.from('profiles').select('*').eq('fingerprint_id', credIdB64).single();
+
+                    if (user) {
+                        const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
+                        const { data: stats } = await sb.from('monthly_payroll').select('*').eq('display_id', user.display_id).single();
+                        setEmployee({ ...user, currentShift: session, stats });
+                        playSfx('success');
+                    } else {
+                        alert("Fingerprint recognized by device but not linked to any OvenX ID.");
+                        playSfx('error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
             };
 
             const handleAdminAccess = () => {
@@ -145,7 +206,6 @@
                 refreshData();
             };
 
-            // --- ADMIN CALC ENGINE ---
             const adminProcessedData = useMemo(() => {
                 return profiles.map(profile => {
                     const finished = payroll.find(r => r.display_id === profile.display_id) || { total_seconds_worked: 0 };
@@ -158,7 +218,6 @@
                 });
             }, [profiles, payroll, logs, currentTime]);
 
-            // --- FILTERED ARCHIVES ---
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => {
                     const matchSearch = l.profiles?.full_name.toLowerCase().includes(search.toLowerCase()) || l.profiles?.display_id.includes(search);
@@ -186,13 +245,12 @@
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = `Archives_Report_${new Date().toLocaleDateString()}.csv`;
+                const a = document.createElement('a'); a.href = url; a.download = `Report_${new Date().toLocaleDateString()}.csv`;
                 a.click(); playSfx('success');
             };
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    {/* Header */}
                     <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center sticky top-0 z-50">
                         <div className="flex items-center gap-3">
                             <p className="text-white font-black text-3xl tracking-tighter leading-none uppercase">OVEN <span className="text-[#f37021]">X</span></p>
@@ -209,23 +267,27 @@
                     </nav>
 
                     {view === 'kiosk' ? (
-                        /* --- EMPLOYEE PORTAL --- */
                         <div className="flex-1 flex items-center justify-center p-6 bg-[#F1F5F9] relative overflow-hidden">
                             {!employee ? (
                                 <div className="kiosk-card p-12 max-w-sm w-full text-center animate-fade">
-                                    <h1 className="text-2xl font-black mb-8 text-[#8b0000] italic">STAFF LOGIN</h1>
+                                    <h1 className="text-2xl font-black mb-8 text-[#8b0000] italic uppercase leading-none">STAFF LOGIN</h1>
                                     <div className="h-24 bg-slate-50 border-4 border-dashed rounded-[2.5rem] flex items-center justify-center text-5xl font-mono tracking-[0.4em] text-[#f37021] mb-8 font-black leading-none">{pin || '----'}</div>
-                                    <div className="grid grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-3 gap-4 mb-6">
                                         {[1,2,3,4,5,6,7,8,9,'C',0,'OK'].map(k => (
                                             <button key={k} onClick={() => {playSfx('pop'); k==='C'?setPin(''):k==='OK'?handleLogin():setPin(p=>(p+k).slice(0,4))}}
                                                 className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
                                         ))}
                                     </div>
+                                    <div className="border-t pt-8">
+                                        <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm uppercase tracking-widest">
+                                            <i data-lucide="fingerprint"></i> SCAN FINGER
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
                                     <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter italic leading-none">{employee.full_name}</h2>
-                                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">Employee ID: {employee.display_id}</p>
+                                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">ID: {employee.display_id}</p>
                                     <div className="grid grid-cols-2 gap-5 mb-8">
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
                                             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Previous PKR</p>
@@ -252,7 +314,6 @@
                             )}
                         </div>
                     ) : (
-                        /* --- 5-STAR ADMIN PANEL (OVENX THEME) --- */
                         <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
                             <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021]">
                                 <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
@@ -287,7 +348,7 @@
                                                     {adminProcessedData.map((r, i) => (
                                                         <tr key={i} className="hover:bg-slate-50 transition-all">
                                                             <td className="px-10 py-7 text-base flex items-center gap-3">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
-                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">{Math.floor(r.totalSecs/3600)}h {Math.floor((r.totalSecs%3600)/60)}m {r.totalSecs%60}s</td>
+                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">{Math.floor(r.totalSecs/3600)}h {Math.floor((r.totalSecs%3600)/60)}m</td>
                                                             <td className="px-10 py-7 text-center font-black"><span className="bg-slate-100 px-5 py-2 rounded-xl text-slate-600">{(r.totalSecs/36000).toFixed(2)}</span></td>
                                                             <td className="px-10 py-7 text-right font-black text-[#f37021] text-2xl tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
                                                         </tr>
@@ -301,48 +362,37 @@
                                 {adminTab === 'logs' && (
                                     <div className="animate-fade">
                                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
-                                            <div>
-                                                <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] leading-none uppercase">Archives</h2>
-                                                <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-[11px]">Comprehensive Shift Performance</p>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm w-full lg:w-auto">
-                                                <input placeholder="Search Name/ID..." value={search} onChange={(e)=>setSearch(e.target.value)}
-                                                    className="pl-6 pr-4 py-3 bg-slate-50 rounded-2xl text-xs font-bold w-48 outline-none border focus:border-[#f37021] transition-all" />
-                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-                                                    {['all','day','week','month'].map(t => (
-                                                        <button key={t} onClick={()=>setTimeFilter(t)} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase ${timeFilter===t?'bg-white text-[#f37021] shadow-sm':'text-slate-400'}`}>{t}</button>
-                                                    ))}
-                                                </div>
-                                                <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a] tracking-widest">
-                                                    <i data-lucide="download"></i> EXCEL REPORT
+                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Archives</h2>
+                                            <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm">
+                                                <input placeholder="Search..." value={search} onChange={(e)=>setSearch(e.target.value)}
+                                                    className="pl-6 py-3 bg-slate-50 rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021]" />
+                                                <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
+                                                    <i data-lucide="download"></i> EXCEL
                                                 </button>
                                             </div>
                                         </div>
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-left text-sm min-w-[900px]">
-                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                                        <tr><th className="px-8 py-6">Staff</th><th className="px-8 py-6">Timeline</th><th className="px-8 py-6">Work Duration</th><th className="px-8 py-6 text-center">Earnings (PKR)</th><th className="px-8 py-6 text-right">Actions</th></tr>
-                                                    </thead>
-                                                    <tbody className="divide-y text-slate-800">
-                                                        {filteredArchives.map((l, i) => (
-                                                            <tr key={i} className="hover:bg-slate-50 transition-colors">
-                                                                <td className="px-8 py-6"><p className="font-black text-slate-900 leading-none mb-1">{l.profiles?.full_name}</p><p className="text-[10px] text-[#f37021] not-italic font-black">ID: {l.profiles?.display_id}</p></td>
-                                                                <td className="px-8 py-6 font-mono text-[11px]">
-                                                                    <div className="text-emerald-600 mb-1">IN: {new Date(l.check_in).toLocaleString()}</div>
-                                                                    <div className={l.check_out ? 'text-[#8b0000]' : 'text-indigo-600 live-dot font-black'}>OUT: {l.check_out ? new Date(l.check_out).toLocaleString() : 'WORKING...'}</div>
-                                                                </td>
-                                                                <td className="px-8 py-6 font-mono text-slate-400">{Math.floor(l.diff/3600)}h {Math.floor((l.diff%3600)/60)}m {l.diff%60}s</td>
-                                                                <td className="px-8 py-6 text-center text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
-                                                                <td className="px-8 py-6 text-right flex justify-end gap-2">
-                                                                    <button onClick={()=>{playSfx('pop'); setEditLog(l)}} className="p-3 text-[#f37021] bg-[#fff9f5] rounded-2xl btn-3d shadow-[0_3px_0px_#eee]"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
-                                                                    <button onClick={async ()=>{if(confirm("Delete entry?")){await sb.from('attendance').delete().eq('id',l.id); refreshData(); playSfx('success');}}} className="p-3 text-white bg-[#8b0000] rounded-2xl btn-3d shadow-[0_3px_0px_#5e0000]"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <table className="w-full text-left text-sm">
+                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
+                                                    <tr><th className="px-8 py-6">Staff</th><th className="px-8 py-6">Timeline</th><th className="px-8 py-6">Earnings</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                                                </thead>
+                                                <tbody className="divide-y text-slate-800">
+                                                    {filteredArchives.map((l, i) => (
+                                                        <tr key={i} className="hover:bg-slate-50">
+                                                            <td className="px-8 py-6"><p className="font-black text-slate-900 leading-none">{l.profiles?.full_name}</p></td>
+                                                            <td className="px-8 py-6 font-mono text-[11px]">
+                                                                <div className="text-emerald-600">IN: {new Date(l.check_in).toLocaleString()}</div>
+                                                                <div className={l.check_out ? 'text-red-800' : 'text-indigo-600 font-black'}>OUT: {l.check_out ? new Date(l.check_out).toLocaleString() : 'LIVE'}</div>
+                                                            </td>
+                                                            <td className="px-8 py-6 text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
+                                                            <td className="px-8 py-6 text-right flex justify-end gap-2">
+                                                                <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
+                                                                <button onClick={async ()=>{if(confirm("Delete?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 )}
@@ -351,21 +401,23 @@
                                     <div className="animate-fade">
                                         <div className="flex justify-between items-center mb-12">
                                             <h2 className="text-4xl font-black tracking-tighter italic uppercase text-[#8b0000]">Human Resources</h2>
-                                            <button onClick={()=>{playSfx('pop'); setIsStaffModal(true)}} className="bg-[#f37021] text-white px-8 py-4 rounded-[2rem] font-black text-sm flex gap-2 btn-3d shadow-[0_5px_0px_#b34e12]"><i data-lucide="plus"></i> REGISTER STAFF</button>
+                                            <button onClick={()=>setIsStaffModal(true)} className="bg-[#f37021] text-white px-8 py-4 rounded-[2rem] font-black text-sm btn-3d shadow-[0_5px_0px_#b34e12]">+ REGISTER</button>
                                         </div>
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
                                             <table className="w-full text-left text-sm font-bold">
-                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b tracking-widest">
-                                                    <tr><th className="px-10 py-6">Member Details</th><th className="px-10 py-6 text-center">PIN ID</th><th className="px-10 py-6 text-center">Daily PKR</th><th className="px-10 py-6 text-right">Settings</th></tr>
+                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
+                                                    <tr><th className="px-10 py-6">Member Details</th><th className="px-10 py-6 text-center">ID</th><th className="px-10 py-6 text-right">Biometric</th></tr>
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {profiles.map(p => (
-                                                        <tr key={p.id} className="hover:bg-slate-50/50">
+                                                        <tr key={p.id}>
                                                             <td className="px-10 py-6 text-base text-slate-900 font-black">{p.full_name}</td>
                                                             <td className="px-10 py-6 font-mono text-[#f37021] text-center tracking-[0.4em] font-black">{p.display_id}</td>
-                                                            <td className="px-10 py-6 text-center text-slate-400 font-bold tracking-tight">Rs. {p.daily_rate.toLocaleString()} <span className="opacity-40 text-[10px]">/ 10h</span></td>
                                                             <td className="px-10 py-6 text-right">
-                                                                <button onClick={async ()=>{if(confirm("Permanently delete?")){await sb.from('profiles').delete().eq('id',p.id); refreshData(); playSfx('success');}}} className="bg-[#8b0000] text-white p-3 rounded-2xl btn-3d shadow-[0_3px_0px_#5e0000] ml-auto block transition-all hover:scale-105"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
+                                                                <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d shadow-[0_3px_0px_#eee] inline-flex items-center gap-3 ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}>
+                                                                    <i data-lucide="fingerprint"></i>
+                                                                    <span className="text-[10px] uppercase font-black">{p.fingerprint_id ? 'Linked' : 'Link Finger'}</span>
+                                                                </button>
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -378,18 +430,18 @@
                         </div>
                     )}
 
-                    {/* MODALS - THE BUBBLE WRAPPERS */}
+                    {/* MODALS */}
                     {isStaffModal && (
-                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
-                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] tracking-tighter uppercase leading-none">Register Member</h3>
+                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Register Staff</h3>
                                 <div className="space-y-6">
-                                    <input required placeholder="Legal Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none focus:border-[#f37021] text-center italic" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
-                                    <input required placeholder="PIN Access" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono font-bold outline-none focus:border-[#f37021] text-center tracking-[0.5em]" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
-                                    <input required placeholder="Daily PKR (10h)" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none focus:border-[#f37021] text-center italic" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
+                                    <input required placeholder="Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
+                                    <input required placeholder="PIN Access" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
+                                    <input required placeholder="Daily PKR" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
                                     <div className="flex gap-4 pt-6">
-                                        <button onClick={()=>setIsStaffModal(false)} className="flex-1 font-black text-slate-400 uppercase tracking-widest text-xs">Cancel</button>
-                                        <button onClick={async ()=>{playSfx('pop'); await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate}]); setIsStaffModal(false); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] tracking-widest uppercase text-xs">Activate Profile</button>
+                                        <button onClick={()=>setIsStaffModal(false)} className="flex-1 font-black text-slate-400 uppercase text-xs">Cancel</button>
+                                        <button onClick={async ()=>{await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate}]); setIsStaffModal(false); refreshData();}} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button>
                                     </div>
                                 </div>
                             </div>
@@ -397,17 +449,17 @@
                     )}
 
                     {editLog && (
-                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
+                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
-                                <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] leading-none tracking-tighter uppercase underline underline-offset-8 decoration-[#f37021]">Override Shift</h3>
+                                <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] uppercase">Override Shift</h3>
                                 <div className="space-y-10 text-left font-bold italic">
-                                    <div className="space-y-2"><label className="text-[10px] text-slate-400 uppercase tracking-widest ml-6 mb-2 block font-black">Shift Start Time</label>
-                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none focus:border-[#f37021] shadow-inner" value={editLog.check_in.slice(0, 16)} onChange={e=>setEditLog({...editLog, check_in:e.target.value})} /></div>
-                                    <div className="space-y-2"><label className="text-[10px] text-slate-400 uppercase tracking-widest ml-6 mb-2 block font-black">Shift End Time</label>
-                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none focus:border-[#f37021] shadow-inner" value={editLog.check_out?.slice(0, 16) || ''} onChange={e=>setEditLog({...editLog, check_out:e.target.value})} /></div>
-                                    <div className="flex gap-6 pt-6 text-center items-center">
-                                        <button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase tracking-widest text-xs font-black">Discard</button>
-                                        <button onClick={async ()=>{playSfx('pop'); await sb.from('attendance').update({check_in:editLog.check_in, check_out:editLog.check_out}).eq('id',editLog.id); setEditLog(null); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] shadow-[0_6px_0px_#3730a3] btn-3d tracking-widest uppercase text-xs">Update Record</button>
+                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">Start</label>
+                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editLog.check_in.slice(0, 16)} onChange={e=>setEditLog({...editLog, check_in:e.target.value})} /></div>
+                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">End</label>
+                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editLog.check_out?.slice(0, 16) || ''} onChange={e=>setEditLog({...editLog, check_out:e.target.value})} /></div>
+                                    <div className="flex gap-6 pt-6">
+                                        <button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Discard</button>
+                                        <button onClick={async ()=>{await sb.from('attendance').update({check_in:editLog.check_in, check_out:editLog.check_out}).eq('id',editLog.id); setEditLog(null); refreshData();}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs">Update</button>
                                     </div>
                                 </div>
                             </div>
