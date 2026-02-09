@@ -520,38 +520,128 @@
             }, [profiles, logs, currentTime, scope]);
 
             const exportExcel = () => {
-                playSfx('pop');
-                let html = `
-                    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-                    <head><meta charset="UTF-8"><style>
-                        table { border-collapse: collapse; width: 100%; }
-                        th { background: #8b0000; color: white; border: 1px solid #000; padding: 10px; font-weight: bold; }
-                        td { border: 1px solid #ccc; padding: 8px; font-family: sans-serif; font-weight: bold; }
-                    </style></head>
-                    <body>
-                        <h2 style="text-align:center">OvenX Intelligence ${scope.toUpperCase()} Report</h2>
-                        <table>
-                            <thead>
-                                <tr><th>Employee</th><th>Staff ID</th><th>Status</th><th>Work Duration</th><th>Scope Earnings (PKR)</th></tr>
-                            </thead>
-                            <tbody>
-                `;
-                adminProcessedData.forEach(r => {
-                    html += `
-                        <tr>
-                            <td>${r.full_name}</td>
-                            <td style="text-align:center">${r.display_id}</td>
-                            <td style="text-align:center">${r.adminStatus}</td>
-                            <td style="text-align:center">${Math.floor(r.totalSecs/3600)}h ${Math.floor((r.totalSecs%3600)/60)}m</td>
-                            <td style="text-align:right">Rs. ${r.salary}</td>
-                        </tr>
-                    `;
-                });
-                html += `</tbody></table></body></html>`;
-                const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `OvenX_${scope}_Report.xls`; a.click();
-                playSfx('success');
-            };
+    playSfx('pop');
+    
+    // Get current date for filename
+    const today = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+    
+    let html = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                table { border-collapse: collapse; width: 100%; }
+                th { background: #8b0000; color: white; border: 1px solid #000; padding: 12px; font-weight: bold; font-size: 11px; text-align: center; }
+                td { border: 1px solid #ccc; padding: 10px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; }
+                .text-left { text-align: left; }
+                .text-center { text-align: center; }
+                .text-right { text-align: right; }
+                .header { font-size: 18px; font-weight: bold; text-align: center; color: #8b0000; margin-bottom: 10px; }
+                .subheader { font-size: 12px; text-align: center; color: #666; margin-bottom: 20px; }
+                .money { font-weight: bold; color: #f37021; }
+                .present { background-color: #dcfce7; }
+                .closed { background-color: #e0f2fe; }
+                .pending { background-color: #fef9c3; }
+                .holiday { background-color: #fee2e2; }
+                .offline { background-color: #f3f4f6; }
+            </style>
+        </head>
+        <body>
+            <div class="header">OvenX Intelligence - Detailed ${scope.toUpperCase()} Report</div>
+            <div class="subheader">Generated on: ${new Date().toLocaleString()} | Period: ${scope.toUpperCase()}</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Employee Name</th>
+                        <th>Staff ID</th>
+                        <th>Status</th>
+                        <th>Holiday</th>
+                        <th>Check-In Time</th>
+                        <th>Check-Out Time</th>
+                        <th>Uniform</th>
+                        <th>Hours Worked</th>
+                        <th>Money Earned (PKR)</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    adminProcessedData.forEach(r => {
+        // Determine row color based on status
+        let rowClass = 'offline';
+        if (r.adminStatus === 'Present') rowClass = 'present';
+        else if (r.adminStatus === 'Closed') rowClass = 'closed';
+        else if (r.adminStatus === 'Pending') rowClass = 'pending';
+        else if (r.adminStatus === 'Holiday') rowClass = 'holiday';
+
+        // Calculate hours and minutes
+        const totalHours = Math.floor(r.totalSecs / 3600);
+        const totalMinutes = Math.floor((r.totalSecs % 3600) / 60);
+        const timeDisplay = r.totalSecs > 0 ? `${totalHours}h ${totalMinutes}m` : '0h 0m';
+
+        // Get check-in and check-out times
+        const activeShift = logs.find(l => l.employee_id === r.id && !l.check_out);
+        const lastShift = logs.find(l => l.employee_id === r.id);
+        
+        let checkInTime = '-';
+        let checkOutTime = '-';
+        let uniformStatus = 'N/A';
+        
+        if (activeShift) {
+            checkInTime = new Date(activeShift.check_in).toLocaleString();
+            checkOutTime = 'LIVE';
+            uniformStatus = activeShift.uniform ? 'ON' : 'OFF';
+        } else if (lastShift) {
+            checkInTime = new Date(lastShift.check_in).toLocaleString();
+            checkOutTime = lastShift.check_out ? new Date(lastShift.check_out).toLocaleString() : '-';
+            uniformStatus = lastShift.uniform ? 'ON' : 'OFF';
+        }
+
+        // Holiday status
+        const holidayStatus = r.adminStatus === 'Holiday' ? 'YES' : 'NO';
+
+        html += `
+            <tr class="${rowClass}">
+                <td class="text-left font-bold">${r.full_name}</td>
+                <td class="text-center font-mono">${r.display_id}</td>
+                <td class="text-center font-bold">${r.adminStatus}</td>
+                <td class="text-center">${holidayStatus}</td>
+                <td class="text-center">${checkInTime}</td>
+                <td class="text-center">${checkOutTime}</td>
+                <td class="text-center">${uniformStatus}</td>
+                <td class="text-center">${timeDisplay}</td>
+                <td class="text-right money">Rs. ${parseFloat(r.salary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            </tr>
+        `;
+    });
+
+    // Add summary row
+    const totalMoney = adminProcessedData.reduce((a,b) => a + parseFloat(b.salary), 0);
+    const totalHours = adminProcessedData.reduce((a,b) => a + b.totalSecs, 0);
+    const totalH = Math.floor(totalHours / 3600);
+    const totalM = Math.floor((totalHours % 3600) / 60);
+
+    html += `
+                </tbody>
+                <tfoot>
+                    <tr style="background-color: #8b0000; color: white; font-weight: bold;">
+                        <td colspan="7" class="text-right">TOTALS:</td>
+                        <td class="text-center">${totalH}h ${totalM}m</td>
+                        <td class="text-right">Rs. ${totalMoney.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </body>
+        </html>
+    `;
+
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const a = document.createElement('a'); 
+    a.href = URL.createObjectURL(blob); 
+    a.download = `OvenX_Detailed_${scope}_${today}.xls`; 
+    a.click();
+    playSfx('success');
+};
 
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => 
