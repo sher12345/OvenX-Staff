@@ -4,26 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RestoFlow | OvenX Admin Intelligence</title>
+    
+    <!-- Scripts -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    
     <style>
         :root { 
             --red: #8b0000; 
             --orange: #f37021; 
             --dark-orange: #b34e12; 
             --navy: #0F172A; 
-            --bg: #fff9f5; 
+            --bg: #f8fafc; 
         }
+
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
             background: var(--bg); 
             color: #333; 
-            overflow-x: hidden; 
+            overflow: hidden; 
+            font-style: normal !important;
+        }
+
+        /* Global Typography Enforcement */
+        * { 
+            font-style: normal !important; 
         }
 
         .btn-3d { 
@@ -33,6 +45,7 @@
             position: relative; 
             user-select: none; 
         }
+        
         .btn-3d:active { 
             transform: translateY(4px) !important; 
             box-shadow: 0 2px 0px rgba(0,0,0,0.2) !important; 
@@ -44,6 +57,7 @@
             box-shadow: 0 8px 20px rgba(243, 112, 33, 0.4); 
             border-radius: 15px; 
         }
+
         .admin-sidebar { 
             background: var(--red); 
             border-right: 6px solid var(--orange); 
@@ -57,6 +71,7 @@
             border-radius: 35px; 
             border: 4px solid var(--orange); 
         }
+
         .kiosk-card { 
             background: white; 
             border-radius: 35px; 
@@ -68,11 +83,30 @@
             0%, 100% { opacity: 1; } 
             50% { opacity: 0.3; } 
         }
-        .live-dot { animation: pulse-live 1.5s infinite; }
-        .animate-fade { animation: fadeIn 0.3s ease-out forwards; }
+        
+        .live-dot { 
+            animation: pulse-live 1.5s infinite; 
+        }
+
+        .animate-fade { 
+            animation: fadeIn 0.3s ease-out forwards; 
+        }
+
         @keyframes fadeIn { 
             from { opacity: 0; transform: translateY(10px); } 
             to { opacity: 1; transform: translateY(0); } 
+        }
+
+        /* Custom Scrollbar for Dashboard */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
         }
     </style>
 </head>
@@ -80,7 +114,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
         const SUPABASE_URL = 'https://oapejxvzmrqkvodnetcr.supabase.co';
         const SUPABASE_KEY = 'sb_publishable_3JnTs-MS475tjzYWpK3d8g_4j81ObNT';
@@ -101,8 +135,11 @@
             a.play().catch(() => {});
         };
 
+        // --- SUB-COMPONENTS ---
+        
         const LiveShiftEngine = ({ startTime, dailyRate }) => {
             const [seconds, setSeconds] = useState(0);
+            
             useEffect(() => {
                 const tick = () => {
                     const diff = Math.max(0, Math.floor((new Date() - new Date(startTime)) / 1000));
@@ -112,12 +149,14 @@
                 const i = setInterval(tick, 1000); 
                 return () => clearInterval(i);
             }, [startTime]);
+
             const h = Math.floor(seconds / 3600); 
             const m = Math.floor((seconds % 3600) / 60); 
             const s = seconds % 60;
             const liveMoney = ((seconds / 36000) * dailyRate).toFixed(2);
+
             return (
-                <div className="space-y-6">
+                <div className="space-y-6 uppercase font-black">
                     <div className="bg-[#f37021] text-white p-6 rounded-[2rem] shadow-[0_6px_0px_#b34e12]">
                         <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Shift Earnings (Live)</p>
                         <p className="text-4xl font-black font-mono">Rs. {liveMoney}</p>
@@ -128,28 +167,116 @@
                             <span className="text-[11px] font-black text-rose-500 uppercase tracking-widest">Live Duration</span>
                         </div>
                         <div className="text-5xl font-mono font-black text-rose-600 tracking-tighter">{h}h {m}m {s}s</div>
-                        <p className="text-slate-400 text-xs font-bold mt-4 italic underline decoration-rose-200 underline-offset-4 tracking-tight leading-none">Clocked in: {new Date(startTime).toLocaleTimeString()}</p>
+                        <p className="text-slate-400 text-xs font-black mt-4 underline decoration-rose-200 underline-offset-4 tracking-tight leading-none uppercase">Clocked in: {new Date(startTime).toLocaleTimeString()}</p>
                     </div>
                 </div>
             );
         };
 
+        const VisualIntelligence = ({ logs, adminData, scope }) => {
+            const lineRef = useRef(null);
+            const doughRef = useRef(null);
+            const charts = useRef({ line: null, dough: null });
+
+            useEffect(() => {
+                if (!lineRef.current || !doughRef.current) return;
+                
+                // Destroy existing instances
+                if (charts.current.line) charts.current.line.destroy();
+                if (charts.current.dough) charts.current.dough.destroy();
+
+                // Process Line Chart Data (Trend)
+                const labels = [...Array(7)].map((_, i) => {
+                    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+                    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                });
+
+                const costPoints = labels.map(label => {
+                    return logs.filter(l => new Date(l.check_in).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) === label)
+                               .reduce((sum, log) => {
+                                   const start = new Date(log.check_in);
+                                   const end = log.check_out ? new Date(log.check_out) : new Date();
+                                   const hrs = (end - start) / 3600000;
+                                   return sum + (hrs * (log.profiles?.daily_rate / 10 || 0));
+                               }, 0);
+                });
+
+                charts.current.line = new Chart(lineRef.current, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            data: costPoints,
+                            borderColor: '#f37021',
+                            backgroundColor: 'rgba(243, 112, 33, 0.05)',
+                            fill: true, tension: 0.4, borderWidth: 4, pointRadius: 4
+                        }]
+                    },
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } }, 
+                        scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } 
+                    }
+                });
+
+                // Status Counts for Doughnut
+                const counts = {
+                    Present: adminData.filter(d => d.adminStatus === 'Present').length,
+                    Closed: adminData.filter(d => d.adminStatus === 'Closed').length,
+                    Other: adminData.filter(d => d.adminStatus !== 'Present' && d.adminStatus !== 'Closed').length
+                };
+
+                charts.current.dough = new Chart(doughRef.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['On-Duty', 'Shift Closed', 'Others'],
+                        datasets: [{
+                            data: [counts.Present, counts.Closed, counts.Other],
+                            backgroundColor: ['#10b981', '#f37021', '#cbd5e1'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { cutout: '75%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 20, font: { weight: '800' } } } } }
+                });
+
+            }, [logs, adminData, scope]);
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+                    <div className="bg-white p-8 rounded-[3rem] border shadow-sm h-80 flex flex-col">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 uppercase">Expenditure Trend (Last 7 Days)</p>
+                        <div className="flex-1"><canvas ref={lineRef}></canvas></div>
+                    </div>
+                    <div className="bg-white p-8 rounded-[3rem] border shadow-sm flex flex-col items-center h-80">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 self-start uppercase">Staffing Status Breakdown</p>
+                        <div className="w-full h-full max-h-[220px] flex justify-center"><canvas ref={doughRef}></canvas></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP COMPONENT ---
         const App = () => {
             const [view, setView] = useState('kiosk');
             const [adminTab, setAdminTab] = useState('overview');
+            const [scope, setScope] = useState('day');
+            
             const [pin, setPin] = useState('');
             const [employee, setEmployee] = useState(null);
             const [search, setSearch] = useState('');
-            const [timeFilter, setTimeFilter] = useState('all');
+            
             const [profiles, setProfiles] = useState([]);
             const [logs, setLogs] = useState([]);
             const [currentTime, setCurrentTime] = useState(Date.now());
+            
+            // Modal States
             const [editLog, setEditLog] = useState(null);
             const [editStaff, setEditStaff] = useState(null);
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // REAL-TIME DASHBOARD ENGINE
+            // Dashboard Engine Loop
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
@@ -165,14 +292,18 @@
                 const runAutoCheck = async () => {
                     const now = new Date();
                     const liveShifts = logs.filter(l => !l.check_out);
+                    
                     for (const shift of liveShifts) {
                         const prof = profiles.find(p => p.id === shift.employee_id);
                         if (!prof || !prof.shift_end) continue;
+                        
                         const [endH, endM] = prof.shift_end.split(':').map(Number);
                         const checkInDate = new Date(shift.check_in);
                         let autoEnd = new Date(checkInDate);
                         autoEnd.setHours(endH, endM, 0, 0);
+                        
                         if (autoEnd <= checkInDate) autoEnd.setDate(autoEnd.getDate() + 1);
+                        
                         if (now >= autoEnd) {
                             await sb.from('attendance').update({ check_out: autoEnd.toISOString() }).eq('id', shift.id);
                             refreshData();
@@ -187,6 +318,23 @@
                 const { data: p } = await sb.from('profiles').select('*').order('created_at', { ascending: false });
                 const { data: l } = await sb.from('attendance').select('*, profiles(*)').order('check_in', { ascending: false });
                 setProfiles(p || []); setLogs(l || []);
+            };
+
+            // --- AUTH LOGIC ---
+            const handleFingerprintLogin = async () => {
+                try {
+                    playSfx('pop');
+                    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                    const assertion = await navigator.credentials.get({ publicKey: { challenge, userVerification: "required" } });
+                    if (!assertion) return;
+                    const credIdB64 = bufferToBase64(assertion.rawId);
+                    const { data: user } = await sb.from('profiles').select('*').eq('fingerprint_id', credIdB64).single();
+                    if (user) {
+                        const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
+                        setEmployee({ ...user, currentShift: session });
+                        playSfx('success');
+                    } else { alert("Fingerprint not recognized."); playSfx('error'); }
+                } catch (err) { console.error(err); }
             };
 
             const handleRegisterFinger = async (user) => {
@@ -212,30 +360,6 @@
                 } catch (err) { alert("Failed: " + err.message); }
             };
 
-            const handleFingerprintLogin = async () => {
-                try {
-                    playSfx('pop');
-                    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
-                    const assertion = await navigator.credentials.get({ publicKey: { challenge, userVerification: "required" } });
-                    if (!assertion) return;
-                    const credIdB64 = bufferToBase64(assertion.rawId);
-                    const { data: user } = await sb.from('profiles').select('*').eq('fingerprint_id', credIdB64).single();
-                    if (user) {
-                        const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
-                        setEmployee({ ...user, currentShift: session });
-                        playSfx('success');
-                    } else { alert("Fingerprint not recognized."); playSfx('error'); }
-                } catch (err) { console.error(err); }
-            };
-
-            const handleAdminAccess = () => {
-                playSfx('pop');
-                if (view === 'admin') return setView('kiosk');
-                const pass = prompt("Admin Password Required:");
-                if (pass === "75300") { setView('admin'); playSfx('success'); }
-                else if(pass !== null) { alert("Invalid Credentials"); playSfx('error'); }
-            };
-
             const handleLogin = async () => {
                 playSfx('pop');
                 const { data: user } = await sb.from('profiles').select('*').eq('display_id', pin).single();
@@ -244,6 +368,14 @@
                     setEmployee({ ...user, currentShift: session });
                     setPin(''); playSfx('success');
                 } else { playSfx('error'); setPin(''); }
+            };
+
+            const handleAdminAccess = () => {
+                playSfx('pop');
+                if (view === 'admin') return setView('kiosk');
+                const pass = prompt("Admin Password Required:");
+                if (pass === "75300") { setView('admin'); playSfx('success'); }
+                else if(pass !== null) { alert("Invalid Credentials"); playSfx('error'); }
             };
 
             const toggleUniform = async (shiftId, currentStatus) => {
@@ -264,36 +396,45 @@
                 refreshData();
             };
 
+            // --- DATA ENGINES ---
             const adminProcessedData = useMemo(() => {
                 const now = new Date(currentTime);
                 const curH = now.getHours();
-                let startCycle = new Date(now);
-                if (curH < 10) startCycle.setDate(now.getDate() - 1);
-                startCycle.setHours(10, 0, 0, 0);
+                
+                let startPoint = new Date(now);
+                if (scope === 'day') {
+                    if (curH < 10) startPoint.setDate(now.getDate() - 1);
+                    startPoint.setHours(10, 0, 0, 0);
+                } else if (scope === 'week') {
+                    startPoint.setDate(now.getDate() - 7);
+                    startPoint.setHours(0, 0, 0, 0);
+                } else if (scope === 'month') {
+                    startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+                }
 
                 return profiles.map(profile => {
                     const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
-                    const shiftsThisCycle = logs.filter(l => l.employee_id === profile.id && new Date(l.check_in) >= startCycle);
+                    const scopeLogs = logs.filter(l => l.employee_id === profile.id && new Date(l.check_in) >= startPoint);
                     
-                    let cycleSecs = 0;
-                    shiftsThisCycle.forEach(l => {
+                    let scopeSecs = 0;
+                    scopeLogs.forEach(l => {
                         const start = new Date(l.check_in).getTime();
                         const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
-                        cycleSecs += Math.max(0, Math.floor((end - start) / 1000));
+                        scopeSecs += Math.max(0, Math.floor((end - start) / 1000));
                     });
 
-                    const salary = ((cycleSecs / 36000) * profile.daily_rate).toFixed(2);
-                    const lastShift = shiftsThisCycle[0];
+                    const salary = ((scopeSecs / 36000) * profile.daily_rate).toFixed(2);
+                    const lastShift = scopeLogs[0];
 
                     let status = "Offline";
                     if (activeShift) status = "Present";
-                    else if (shiftsThisCycle.length > 0) status = "Closed";
+                    else if (scopeLogs.length > 0 && scope === 'day') status = "Closed";
                     else if (curH >= 10 || curH < 2) status = "Pending";
-                    else if (curH >= 2 && curH < 10) status = "Holiday";
+                    else status = "Holiday";
 
                     return { 
                         ...profile, 
-                        totalSecs: cycleSecs, 
+                        totalSecs: scopeSecs, 
                         salary, 
                         isActive: !!activeShift, 
                         activeShiftId: activeShift?.id || lastShift?.id, 
@@ -301,84 +442,47 @@
                         adminStatus: status
                     };
                 });
-            }, [profiles, logs, currentTime]);
+            }, [profiles, logs, currentTime, scope]);
 
             const exportExcel = () => {
                 playSfx('pop');
-                
-                // Colors for Excel
-                const getColor = (status) => {
-                    if (status === 'Present') return '#dcfce7'; // Light Green
-                    if (status === 'Closed') return '#e0f2fe'; // Light Blue
-                    if (status === 'Pending') return '#fef9c3'; // Light Yellow
-                    if (status === 'Holiday') return '#fee2e2'; // Light Red
-                    return '#ffffff';
-                };
-
                 let html = `
                     <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-                    <head>
-                        <meta charset="UTF-8">
-                        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>OvenX Report</x:Name><x:WorksheetOptions><x:DisplayGridlines/><x:AutoFilter/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-                        <style>
-                            table { border-collapse: collapse; width: 100%; }
-                            th { background-color: #8b0000; color: white; border: 1px solid #000; padding: 10px; font-weight: bold; }
-                            td { border: 1px solid #ccc; padding: 8px; font-family: sans-serif; }
-                            .header { font-size: 20px; font-weight: bold; text-align: center; color: #8b0000; }
-                        </style>
-                    </head>
+                    <head><meta charset="UTF-8"><style>
+                        table { border-collapse: collapse; width: 100%; }
+                        th { background: #8b0000; color: white; border: 1px solid #000; padding: 10px; font-weight: bold; }
+                        td { border: 1px solid #ccc; padding: 8px; font-family: sans-serif; font-weight: bold; }
+                    </style></head>
                     <body>
-                        <div class="header">OvenX Intelligence Daily Report - ${new Date().toLocaleDateString()}</div>
-                        <br/>
+                        <h2 style="text-align:center">OvenX Intelligence ${scope.toUpperCase()} Report</h2>
                         <table>
                             <thead>
-                                <tr>
-                                    <th>Employee Name</th>
-                                    <th>Staff ID</th>
-                                    <th>Daily Status</th>
-                                    <th>Uniform Status</th>
-                                    <th>Work Duration</th>
-                                    <th>Today Earnings (PKR)</th>
-                                </tr>
+                                <tr><th>Employee</th><th>Staff ID</th><th>Status</th><th>Work Duration</th><th>Scope Earnings (PKR)</th></tr>
                             </thead>
                             <tbody>
                 `;
-
                 adminProcessedData.forEach(r => {
-                    const h = Math.floor(r.totalSecs / 3600);
-                    const m = Math.floor((r.totalSecs % 3600) / 60);
-                    const rowColor = getColor(r.adminStatus);
-                    const uniformText = (r.adminStatus === 'Pending' || r.adminStatus === 'Holiday') ? "N/A" : (r.uniform ? "OK" : "OFF");
-                    const statusText = r.adminStatus === 'Holiday' ? 'ABSENT / HOLIDAY' : r.adminStatus;
-
                     html += `
-                        <tr style="background-color: ${rowColor};">
+                        <tr>
                             <td>${r.full_name}</td>
-                            <td style="text-align: center;">${r.display_id}</td>
-                            <td style="text-align: center; font-weight: bold;">${statusText}</td>
-                            <td style="text-align: center;">${uniformText}</td>
-                            <td style="text-align: center;">${h}h ${m}m</td>
-                            <td style="text-align: right; font-weight: bold;">${r.salary}</td>
+                            <td style="text-align:center">${r.display_id}</td>
+                            <td style="text-align:center">${r.adminStatus}</td>
+                            <td style="text-align:center">${Math.floor(r.totalSecs/3600)}h ${Math.floor((r.totalSecs%3600)/60)}m</td>
+                            <td style="text-align:right">Rs. ${r.salary}</td>
                         </tr>
                     `;
                 });
-
                 html += `</tbody></table></body></html>`;
-
                 const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `OvenX_Report_${new Date().toLocaleDateString()}.xls`;
-                a.click();
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `OvenX_${scope}_Report.xls`; a.click();
                 playSfx('success');
             };
 
             const filteredArchives = useMemo(() => {
-                return logs.filter(l => {
-                    const matchSearch = l.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) || l.profiles?.display_id?.includes(search);
-                    return matchSearch;
-                }).map(log => {
+                return logs.filter(l => 
+                    l.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) || 
+                    l.profiles?.display_id?.includes(search)
+                ).map(log => {
                     const start = new Date(log.check_in).getTime();
                     const end = log.check_out ? new Date(log.check_out).getTime() : currentTime;
                     const diff = Math.max(0, Math.floor((end - start) / 1000));
@@ -390,15 +494,17 @@
             const toLocalISO = (iso) => iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 
             return (
-                <div className="min-h-screen flex flex-col">
-                    <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center sticky top-0 z-50">
+                <div className="h-screen flex flex-col overflow-hidden bg-[#f8fafc]">
+                    
+                    {/* NAV: FIXED TO TOP */}
+                    <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center shrink-0 z-[100] relative">
                         <div className="flex items-center gap-3">
                             <p className="text-white font-black text-3xl tracking-tighter leading-none uppercase">OVEN <span className="text-[#f37021]">X</span></p>
                         </div>
                         <div className="flex items-center gap-8 text-white">
-                            <div className="text-right hidden md:block">
-                                <p className="text-[10px] font-black uppercase tracking-widest opacity-60">System Time</p>
-                                <p className="text-sm font-black">{new Date(currentTime).toLocaleTimeString()}</p>
+                            <div className="text-right hidden md:block uppercase font-black">
+                                <p className="text-[10px] tracking-widest opacity-60">System Time</p>
+                                <p className="text-sm">{new Date(currentTime).toLocaleTimeString()}</p>
                             </div>
                             <button onClick={handleAdminAccess} className="btn-3d bg-[#f37021] text-white px-8 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-[0_4px_0px_#b34e12]">
                                 {view === 'admin' ? '← BACK TO KIOSK' : 'ADMIN PANEL'}
@@ -406,233 +512,218 @@
                         </div>
                     </nav>
 
-                    {view === 'kiosk' ? (
-                        <div className="flex-1 flex items-center justify-center p-6 bg-[#F1F5F9] relative overflow-hidden">
-                            {!employee ? (
-                                <div className="kiosk-card p-12 max-w-sm w-full text-center animate-fade">
-                                    <h1 className="text-2xl font-black mb-8 text-[#8b0000] italic uppercase leading-none">STAFF LOGIN</h1>
-                                    <div className="h-24 bg-slate-50 border-4 border-dashed rounded-[2.5rem] flex items-center justify-center text-5xl font-mono tracking-[0.4em] text-[#f37021] mb-8 font-black leading-none">{pin || '----'}</div>
-                                    <div className="grid grid-cols-3 gap-4 mb-6">
-                                        {[1,2,3,4,5,6,7,8,9,'C',0,'OK'].map(k => (
-                                            <button key={k} onClick={() => {playSfx('pop'); k==='C'?setPin(''):k==='OK'?handleLogin():setPin(p=>(p+k).slice(0,4))}}
-                                                className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
-                                        ))}
+                    <div className="flex-1 flex overflow-hidden">
+                        {view === 'kiosk' ? (
+                            /* --- KIOSK MODE --- */
+                            <div className="flex-1 flex items-center justify-center p-6 bg-[#F1F5F9] relative overflow-hidden font-black uppercase">
+                                {!employee ? (
+                                    <div className="kiosk-card p-12 max-w-sm w-full text-center animate-fade">
+                                        <h1 className="text-2xl font-black mb-8 text-[#8b0000] uppercase">STAFF LOGIN</h1>
+                                        <div className="h-24 bg-slate-50 border-4 border-dashed rounded-[2.5rem] flex items-center justify-center text-5xl font-mono tracking-[0.4em] text-[#f37021] mb-8 font-black leading-none">{pin || '----'}</div>
+                                        <div className="grid grid-cols-3 gap-4 mb-6 uppercase font-black">
+                                            {[1,2,3,4,5,6,7,8,9,'C',0,'OK'].map(k => (
+                                                <button key={k} onClick={() => {playSfx('pop'); k==='C'?setPin(''):k==='OK'?handleLogin():setPin(p=>(p+k).slice(0,4))}}
+                                                    className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
+                                            ))}
+                                        </div>
+                                        <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm tracking-widest uppercase"><i data-lucide="fingerprint"></i> SCAN FINGER</button>
                                     </div>
-                                    <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm uppercase tracking-widest">
-                                        <i data-lucide="fingerprint"></i> SCAN FINGER
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
-                                    <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter italic leading-none">{employee.full_name}</h2>
-                                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">ID: {employee.display_id}</p>
-                                    <div className="grid grid-cols-2 gap-5 mb-8">
-                                        <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Cycle Earnings</p>
-                                            <p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p>
+                                ) : (
+                                    <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
+                                        <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter uppercase">{employee.full_name}</h2>
+                                        <p className="text-slate-400 font-bold uppercase text-[10px] mt-4 mb-10 tracking-widest">ID: {employee.display_id}</p>
+                                        <div className="grid grid-cols-2 gap-5 mb-8 text-left uppercase">
+                                            <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Period Earnings</p><p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p></div>
+                                            <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Work Hours</p><p className="text-2xl font-black text-slate-800 font-mono">{Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h</p></div>
                                         </div>
-                                        <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Time (Today)</p>
-                                            <p className="text-2xl font-black text-slate-800 font-mono">
-                                                {Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h
-                                            </p>
-                                        </div>
+                                        {employee.currentShift ? (
+                                            <div><LiveShiftEngine startTime={employee.currentShift.check_in} dailyRate={employee.daily_rate} /><button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] uppercase">Finish Shift</button></div>
+                                        ) : (
+                                            <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] uppercase">Start Shift</button>
+                                        )}
+                                        <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] uppercase tracking-widest">Logout</button>
                                     </div>
-                                    {employee.currentShift ? (
-                                        <div>
-                                            <LiveShiftEngine startTime={employee.currentShift.check_in} dailyRate={employee.daily_rate} />
-                                            <button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] italic">FINISH SHIFT</button>
+                                )}
+                            </div>
+                        ) : (
+                            /* --- ADMIN MODE --- */
+                            <React.Fragment>
+                                {/* LOCKED SIDEBAR: Strictly attached to top under header */}
+                                <aside className="w-72 admin-sidebar flex flex-col shrink-0 p-6 gap-2 h-full z-10 font-black uppercase">
+                                    <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-black transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
+                                    <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-black transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
+                                    <button onClick={()=>setAdminTab('logs')} className={`flex items-center gap-4 px-6 py-4 text-sm font-black transition-all ${adminTab==='logs'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="clock"></i> History Logs</button>
+                                </aside>
+
+                                {/* SCROLLING DASHBOARD AREA */}
+                                <main className="flex-1 p-8 md:p-12 overflow-y-auto custom-scroll">
+                                    {adminTab === 'overview' && (
+                                        <div className="animate-fade uppercase font-black">
+                                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-4">
+                                                <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Intelligence Summary</h2>
+                                                <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border shadow-sm uppercase">
+                                                    {['day', 'week', 'month'].map(t => (
+                                                        <button key={t} onClick={() => setScope(t)} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${scope === t ? 'bg-[#f37021] text-white' : 'text-slate-400 hover:bg-slate-50'}`}>{t}</button>
+                                                    ))}
+                                                    <div className="w-[1px] h-6 bg-slate-100 mx-2"></div>
+                                                    <button onClick={exportExcel} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"><i data-lucide="download"></i></button>
+                                                </div>
+                                            </div>
+
+                                            <VisualIntelligence logs={logs} adminData={adminProcessedData} scope={scope} />
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                                                <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                                                    <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">On-Duty</p><p className="text-5xl font-black text-emerald-500">{logs.filter(l=>!l.check_out).length}</p></div>
+                                                    <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><i data-lucide="activity"></i></div>
+                                                </div>
+                                                <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
+                                                    <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase mb-1">{scope} Period Cost</p><p className="text-3xl font-black tracking-tighter uppercase">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
+                                                    <i data-lucide="zap" className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5"></i>
+                                                </div>
+                                                <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                                                    <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Members</p><p className="text-5xl font-black text-slate-900">{profiles.length}</p></div>
+                                                    <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><i data-lucide="users"></i></div>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
+                                                <table className="w-full text-left text-sm uppercase">
+                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                                        <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6 text-center">Work Days</th><th className="px-10 py-6 text-right">Scope PKR</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y font-bold">
+                                                        {adminProcessedData.map((r, i) => (
+                                                            <tr key={i} className="hover:bg-slate-50 transition-all">
+                                                                <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
+                                                                <td className="px-10 py-7 uppercase">
+                                                                    <div className="flex items-center gap-3">
+                                                                        {(r.isActive || r.adminStatus === 'Closed') && (
+                                                                            <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>{r.uniform ? 'OK' : 'OFF'}</button>
+                                                                        )}
+                                                                        <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${r.adminStatus === 'Present' ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{r.adminStatus}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-10 py-7 text-center font-black">{(r.totalSecs/36000).toFixed(2)}</td>
+                                                                <td className="px-10 py-7 text-right text-[#f37021] text-2xl font-black tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
-                                    ) : (
-                                        <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] italic uppercase">Start Shift</button>
                                     )}
-                                    <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] tracking-widest uppercase">Logout</button>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
-                            <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021] md:h-full md:sticky md:top-20">
-                                <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
-                                <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
-                                <button onClick={()=>setAdminTab('logs')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='logs'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="clock"></i> History Logs</button>
-                            </aside>
 
-                            <main className="flex-1 p-8 md:p-12 overflow-y-auto bg-[#F8FAFC]">
-                                {adminTab === 'overview' && (
-                                    <div className="animate-fade">
-                                        <div className="flex justify-between items-start mb-10">
-                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Intelligence Summary</h2>
-                                            <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
-                                                <i data-lucide="download"></i> EXCEL REPORT
-                                            </button>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
-                                                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">On-Duty Staff</p><p className="text-5xl font-black text-emerald-500 italic">{logs.filter(l=>!l.check_out).length}</p></div>
-                                                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><i data-lucide="activity"></i></div>
+                                    {adminTab === 'staff' && (
+                                        <div className="animate-fade font-black uppercase">
+                                            <div className="flex justify-between items-center mb-12">
+                                                <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Staff Management</h2>
+                                                <button onClick={()=>setIsStaffModal(true)} className="bg-[#f37021] text-white px-8 py-4 rounded-[2rem] font-black btn-3d shadow-[0_5px_0px_#b34e12] tracking-widest">+ REGISTER STAFF</button>
                                             </div>
-                                            <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
-                                                <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Live Monthly Cost</p><p className="text-3xl font-black italic tracking-tighter">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
-                                                <i data-lucide="zap" className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5"></i>
-                                            </div>
-                                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
-                                                <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">Registered Members</p><p className="text-5xl font-black text-slate-900 italic">{profiles.length}</p></div>
-                                                <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><i data-lucide="users"></i></div>
+                                            <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden text-[11px]">
+                                                <table className="w-full text-left uppercase">
+                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
+                                                        <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6 text-center">PIN ID</th><th className="px-10 py-6 text-center">Shift Schedule</th><th className="px-10 py-6 text-right">Actions</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y font-black">
+                                                        {profiles.map(p => (
+                                                            <tr key={p.id}>
+                                                                <td className="px-10 py-6 text-base text-slate-900 font-black">{p.full_name}</td>
+                                                                <td className="px-10 py-6 font-mono text-[#f37021] text-center tracking-[0.4em] font-black">{p.display_id}</td>
+                                                                <td className="px-10 py-6 text-center font-mono font-black">{p.shift_start || '--:--'} → {p.shift_end || '--:--'}</td>
+                                                                <td className="px-10 py-6 text-right flex justify-end gap-3 font-black">
+                                                                    <button onClick={()=>setEditStaff(p)} className="p-4 bg-slate-50 text-slate-600 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit"></i></button>
+                                                                    <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d shadow-sm border ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}><i data-lucide="fingerprint"></i></button>
+                                                                    <button onClick={async ()=>{if(confirm(`Delete ${p.full_name}?`)){await sb.from('profiles').delete().eq('id',p.id); refreshData();}}} className="p-4 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200 font-black"><i data-lucide="trash-2"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
-                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden">
-                                            <table className="w-full text-left font-bold text-sm italic">
-                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6">Shift Time (Today)</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Today's PKR</th></tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {adminProcessedData.map((r, i) => (
-                                                        <tr key={i} className="hover:bg-slate-50 transition-all">
-                                                            <td className="px-10 py-7 text-base flex items-center gap-3">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
-                                                            <td className="px-10 py-7">
-                                                                <div className="flex items-center gap-3">
-                                                                    {(r.isActive || r.adminStatus === 'Closed') && (
-                                                                        <button onClick={() => { if(r.isActive) toggleUniform(r.activeShiftId, r.uniform) }}
-                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d shadow-[0_4px_0px_rgba(0,0,0,0.1)]' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                                                                            {r.uniform ? 'Uniform OK' : 'Uniform OFF'}
-                                                                        </button>
-                                                                    )}
-                                                                    {r.adminStatus === 'Present' ? (
-                                                                        <span className="bg-emerald-100 text-emerald-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-200">PRESENT</span>
-                                                                    ) : r.adminStatus === 'Closed' ? (
-                                                                        <span className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-600 shadow-sm">Shift Closed</span>
-                                                                    ) : r.adminStatus === 'Pending' ? (
-                                                                        <span className="bg-indigo-50 text-indigo-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-indigo-100 italic">Pending...</span>
-                                                                    ) : r.adminStatus === 'Holiday' ? (
-                                                                        <span className="bg-rose-100 text-rose-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-rose-200">ABSENT / HOLIDAY</span>
-                                                                    ) : (
-                                                                        <span className="text-slate-300 text-[9px] uppercase px-4 italic opacity-40">Offline</span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">
-                                                                {r.adminStatus === 'Holiday' ? '--' : `${Math.floor(r.totalSecs/3600)}h ${Math.floor((r.totalSecs%3600)/60)}m`}
-                                                            </td>
-                                                            <td className="px-10 py-7 text-center font-black"><span className="bg-slate-100 px-5 py-2 rounded-xl text-slate-600">{(r.totalSecs/36000).toFixed(2)}</span></td>
-                                                            <td className="px-10 py-7 text-right font-black text-[#f37021] text-2xl tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
+                                    )}
 
-                                {adminTab === 'logs' && (
-                                    <div className="animate-fade">
-                                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
-                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Archives</h2>
-                                            <input placeholder="Search records..." value={search} onChange={(e)=>setSearch(e.target.value)}
-                                                className="pl-6 py-3 bg-white rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021] shadow-sm w-full lg:w-64" />
+                                    {adminTab === 'logs' && (
+                                        <div className="animate-fade uppercase font-black">
+                                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
+                                                <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase leading-none">Archives</h2>
+                                                <input placeholder="Search records..." value={search} onChange={(e)=>setSearch(e.target.value)}
+                                                    className="pl-6 py-3 bg-white rounded-2xl text-xs font-black outline-none border focus:border-[#f37021] shadow-sm w-full lg:w-64 uppercase" />
+                                            </div>
+                                            <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
+                                                <table className="w-full text-left text-sm uppercase">
+                                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
+                                                        <tr><th className="px-8 py-6">Staff</th><th className="px-8 py-6">Timeline</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y text-slate-800">
+                                                        {filteredArchives.map((l, i) => (
+                                                            <tr key={i} className="hover:bg-slate-50 font-bold uppercase">
+                                                                <td className="px-8 py-6 uppercase font-black"><p className="font-black text-slate-900 leading-none">{l.profiles?.full_name}</p></td>
+                                                                <td className="px-8 py-6 font-mono text-[11px] font-black">
+                                                                    <div className="text-emerald-600">IN: {new Date(l.check_in).toLocaleString()}</div>
+                                                                    <div className={l.check_out ? 'text-red-800' : 'text-indigo-600'}>OUT: {l.check_out ? new Date(l.check_out).toLocaleString() : 'LIVE'}</div>
+                                                                </td>
+                                                                <td className="px-8 py-6 text-right flex justify-end gap-2 uppercase">
+                                                                    <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
+                                                                    <button onClick={async ()=>{if(confirm("Delete Record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
-                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
-                                            <table className="w-full text-left text-sm">
-                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
-                                                    <tr><th className="px-8 py-6">Staff</th><th className="px-8 py-6">Timeline</th><th className="px-8 py-6">Earnings</th><th className="px-8 py-6 text-right">Actions</th></tr>
-                                                </thead>
-                                                <tbody className="divide-y text-slate-800">
-                                                    {filteredArchives.map((l, i) => (
-                                                        <tr key={i} className="hover:bg-slate-50">
-                                                            <td className="px-8 py-6"><p className="font-black text-slate-900 leading-none">{l.profiles?.full_name}</p></td>
-                                                            <td className="px-8 py-6 font-mono text-[11px]">
-                                                                <div className="text-emerald-600">IN: {new Date(l.check_in).toLocaleString()}</div>
-                                                                <div className={l.check_out ? 'text-red-800' : 'text-indigo-600 font-black'}>OUT: {l.check_out ? new Date(l.check_out).toLocaleString() : 'LIVE'}</div>
-                                                            </td>
-                                                            <td className="px-8 py-6 text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
-                                                            <td className="px-8 py-6 text-right flex justify-end gap-2">
-                                                                <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
-                                                                <button onClick={async ()=>{if(confirm("Delete Record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
+                                    )}
+                                </main>
+                            </React.Fragment>
+                        )}
+                    </div>
 
-                                {adminTab === 'staff' && (
-                                    <div className="animate-fade">
-                                        <div className="flex justify-between items-center mb-12">
-                                            <h2 className="text-4xl font-black tracking-tighter italic uppercase text-[#8b0000]">Human Resources</h2>
-                                            <button onClick={()=>setIsStaffModal(true)} className="bg-[#f37021] text-white px-8 py-4 rounded-[2rem] font-black text-sm btn-3d shadow-[0_5px_0px_#b34e12]">+ REGISTER</button>
-                                        </div>
-                                        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic text-[11px]">
-                                            <table className="w-full text-left font-bold">
-                                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
-                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6 text-center">ID</th><th className="px-10 py-6 text-center">Shift Schedule</th><th className="px-10 py-6 text-right">Actions</th></tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {profiles.map(p => (
-                                                        <tr key={p.id}>
-                                                            <td className="px-10 py-6 text-base text-slate-900 font-black">{p.full_name}</td>
-                                                            <td className="px-10 py-6 font-mono text-[#f37021] text-center tracking-[0.4em] font-black">{p.display_id}</td>
-                                                            <td className="px-10 py-6 text-center"><div className="inline-block bg-slate-100 px-4 py-2 rounded-2xl text-slate-600 font-mono font-black">{p.shift_start || '--:--'} → {p.shift_end || '--:--'}</div></td>
-                                                            <td className="px-10 py-6 text-right flex justify-end gap-3">
-                                                                <button onClick={()=>setEditStaff(p)} className="p-4 bg-slate-50 text-slate-600 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit"></i></button>
-                                                                <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d shadow-sm border ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}><i data-lucide="fingerprint"></i></button>
-                                                                <button onClick={async ()=>{if(confirm(`Permanently delete ${p.full_name}?`)){await sb.from('profiles').delete().eq('id',p.id); refreshData();}}} className="p-4 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2"></i></button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-                            </main>
-                        </div>
-                    )}
-
-                    {/* MODALS */}
+                    {/* MODALS SECTION */}
+                    
                     {isStaffModal && (
-                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-fade uppercase font-black">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
-                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Register Staff</h3>
+                                <h3 className="text-3xl font-black mb-8 text-[#8b0000] uppercase">Register Staff</h3>
                                 <div className="space-y-6 text-left">
-                                    <input placeholder="Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
-                                    <input placeholder="PIN" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
-                                    <input placeholder="Rate" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
+                                    <div className="space-y-1"><label className="text-[9px] ml-4 font-black text-slate-400">LEGAL NAME</label><input placeholder="Staff Full Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-black outline-none border-slate-100 focus:border-[#f37021]" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} /></div>
+                                    <div className="space-y-1"><label className="text-[9px] ml-4 font-black text-slate-400">PIN ID</label><input placeholder="Numeric ID" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono font-black outline-none border-slate-100 focus:border-[#f37021]" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} /></div>
+                                    <div className="space-y-1"><label className="text-[9px] ml-4 font-black text-slate-400">PAYOUT RATE (10H)</label><input placeholder="PKR Value" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-black outline-none border-slate-100 focus:border-[#f37021]" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} /></div>
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
+                                        <div className="space-y-1 font-black"><label className="text-[9px] ml-4 text-slate-400 uppercase">Start Time</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
+                                        <div className="space-y-1 font-black"><label className="text-[9px] ml-4 text-slate-400 uppercase">End Time</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); refreshData(); setIsStaffModal(false); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6 font-black"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs uppercase tracking-widest">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); refreshData(); setIsStaffModal(false); playSfx('success'); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#b34e12] uppercase text-xs tracking-widest">Activate</button></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
                     {editStaff && (
-                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-fade uppercase font-black">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
-                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Update Staff</h3>
-                                <div className="space-y-6 text-left">
-                                    <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Full Name</label><input className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={editStaff.full_name} onChange={e=>setEditStaff({...editStaff, full_name:e.target.value})} /></div>
+                                <h3 className="text-3xl font-black mb-8 text-[#8b0000] uppercase font-black">Update Profile</h3>
+                                <div className="space-y-6 text-left font-black">
+                                    <div className="space-y-1"><label className="text-[9px] ml-4 text-slate-400">FULL NAME</label><input className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-black outline-none" value={editStaff.full_name} onChange={e=>setEditStaff({...editStaff, full_name:e.target.value})} /></div>
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
+                                        <div className="space-y-1"><label className="text-[9px] ml-4 text-slate-400 uppercase">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
+                                        <div className="space-y-1"><label className="text-[9px] ml-4 text-slate-400 uppercase">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#3730a3] uppercase text-xs">Save Changes</button></div>
+                                    <div className="flex gap-4 pt-6 font-black"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); playSfx('success'); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#3730a3] uppercase text-xs">Save Changes</button></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
                     {editLog && (
-                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
+                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-fade uppercase font-black">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
-                                <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] uppercase">Override Record</h3>
-                                <div className="space-y-10 text-left font-bold italic">
-                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">Clock-In</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
-                                    <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] uppercase font-black">Clock-Out</label>{editLog.check_out && <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[10px] text-red-500 uppercase font-black underline">Return to Live</button>}</div><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} /></div>
-                                    <div className="flex gap-6 pt-6"><button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Discard</button><button onClick={async ()=>{await sb.from('attendance').update({check_in: editLog.check_in, check_out: editLog.check_out}).eq('id', editLog.id); setEditLog(null); refreshData();}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]">Update Record</button></div>
+                                <h3 className="text-3xl font-black mb-10 text-[#8b0000] uppercase tracking-tighter">Override Shift</h3>
+                                <div className="space-y-10 text-left font-black uppercase">
+                                    <div className="space-y-2"><label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-In Timestamp</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
+                                    <div className="space-y-2 font-black"><div className="flex justify-between items-center"><label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-Out Timestamp</label>{editLog.check_out && <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[9px] text-red-500 uppercase font-black underline">Return to Live</button>}</div><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} /></div>
+                                    <div className="flex gap-6 pt-6 font-black"><button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs">Discard</button><button onClick={async ()=>{await sb.from('attendance').update({check_in: editLog.check_in, check_out: editLog.check_out}).eq('id', editLog.id); setEditLog(null); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]">Update Record</button></div>
                                 </div>
                             </div>
                         </div>
