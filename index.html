@@ -1,3 +1,5 @@
+--- START OF FILE Paste February 09, 2026 - 6:53PM ---
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -144,14 +146,18 @@
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
+            // REAL-TIME ENGINE: Runs every 2 seconds to keep dashboard live
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
                     setCurrentTime(Date.now());
+                    if (view === 'admin' && adminTab === 'overview') {
+                        refreshData(); // Only auto-fetch when in admin dashboard to save bandwidth
+                    }
                     if (window.lucide) window.lucide.createIcons();
-                }, 1000);
+                }, 2000);
                 return () => clearInterval(timer);
-            }, [view, adminTab, employee]);
+            }, [view, adminTab]);
 
             // --- AUTO-CHECKOUT ENGINE ---
             useEffect(() => {
@@ -181,6 +187,12 @@
                 const { data: pay } = await sb.from('monthly_payroll').select('*');
                 const { data: l } = await sb.from('attendance').select('*, profiles(*)').order('check_in', { ascending: false });
                 setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
+            };
+
+            const toggleUniform = async (shiftId, currentStatus) => {
+                playSfx('pop');
+                await sb.from('attendance').update({ uniform: !currentStatus }).eq('id', shiftId);
+                refreshData();
             };
 
             const handleRegisterFinger = async (user) => {
@@ -245,7 +257,7 @@
             const toggleShift = async (type) => {
                 playSfx('pop');
                 if (type === 'in') {
-                    const { data } = await sb.from('attendance').insert([{ employee_id: employee.id }]).select().single();
+                    const { data } = await sb.from('attendance').insert([{ employee_id: employee.id, uniform: true }]).select().single();
                     setEmployee(prev => ({ ...prev, currentShift: data }));
                 } else {
                     await sb.from('attendance').update({ check_out: new Date().toISOString() }).eq('id', employee.currentShift.id);
@@ -255,16 +267,49 @@
             };
 
             const adminProcessedData = useMemo(() => {
+                const now = new Date(currentTime);
+                const curH = now.getHours();
+                
+                let startCycle = new Date(now);
+                if (curH < 10) startCycle.setDate(now.getDate() - 1);
+                startCycle.setHours(10, 0, 0, 0);
+
                 return profiles.map(profile => {
                     const finished = payroll.find(r => r.display_id === profile.display_id) || { total_seconds_worked: 0 };
                     const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
+                    
+                    const workedThisCycle = logs.some(l => 
+                        l.employee_id === profile.id && 
+                        new Date(l.check_in) >= startCycle
+                    );
+
                     let activeSecs = 0;
                     if (activeShift) {
                         activeSecs = Math.max(0, Math.floor((currentTime - new Date(activeShift.check_in).getTime()) / 1000));
                     }
                     const totalSecs = (Number(finished.total_seconds_worked) || 0) + activeSecs;
                     const salary = ((totalSecs / 36000) * profile.daily_rate).toFixed(2);
-                    return { ...profile, totalSecs, salary, isActive: !!activeShift };
+
+                    let status = "Offline";
+                    if (activeShift) {
+                        status = "Present";
+                    } else if (workedThisCycle) {
+                        status = "Closed";
+                    } else if (curH >= 10 || curH < 2) {
+                        status = "Pending";
+                    } else if (curH >= 2 && curH < 10) {
+                        status = "Holiday";
+                    }
+
+                    return { 
+                        ...profile, 
+                        totalSecs, 
+                        salary, 
+                        isActive: !!activeShift, 
+                        activeShiftId: activeShift?.id, 
+                        uniform: activeShift?.uniform,
+                        adminStatus: status
+                    };
                 });
             }, [profiles, payroll, logs, currentTime]);
 
@@ -368,7 +413,6 @@
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
-                            {/* FROZEN SIDEBAR */}
                             <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021] md:h-full md:sticky md:top-20">
                                 <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
                                 <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
@@ -396,13 +440,36 @@
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden">
                                             <table className="w-full text-left font-bold text-sm italic">
                                                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Live Shift Time</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Net Payable</th></tr>
+                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6">Live Shift Time</th><th className="px-10 py-6 text-center">Days</th><th className="px-10 py-6 text-right">Net Payable</th></tr>
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {adminProcessedData.map((r, i) => (
                                                         <tr key={i} className="hover:bg-slate-50 transition-all">
                                                             <td className="px-10 py-7 text-base flex items-center gap-3">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
-                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">{Math.floor(r.totalSecs/3600)}h {Math.floor((r.totalSecs%3600)/60)}m</td>
+                                                            <td className="px-10 py-7">
+                                                                <div className="flex items-center gap-2">
+                                                                    {r.isActive && (
+                                                                        <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)}
+                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all btn-3d ${r.uniform ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-200 text-slate-400 shadow-[0_4px_0px_#cbd5e1]'}`}>
+                                                                            {r.uniform ? 'Uniform OK' : 'Uniform OFF'}
+                                                                        </button>
+                                                                    )}
+                                                                    {r.adminStatus === 'Present' ? (
+                                                                        <span className="bg-emerald-100 text-emerald-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-200">PRESENT</span>
+                                                                    ) : r.adminStatus === 'Closed' ? (
+                                                                        <span className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-600">Shift Closed</span>
+                                                                    ) : r.adminStatus === 'Pending' ? (
+                                                                        <span className="bg-indigo-50 text-indigo-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-indigo-100 italic">Pending...</span>
+                                                                    ) : r.adminStatus === 'Holiday' ? (
+                                                                        <span className="bg-rose-100 text-rose-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-rose-200">ABSENT / HOLIDAY</span>
+                                                                    ) : (
+                                                                        <span className="text-slate-300 text-[9px] uppercase px-4 italic opacity-40">Offline</span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-10 py-7 font-mono text-indigo-600 tracking-tighter">
+                                                                {r.adminStatus === 'Holiday' ? '--' : `${Math.floor(r.totalSecs/3600)}h ${Math.floor((r.totalSecs%3600)/60)}m`}
+                                                            </td>
                                                             <td className="px-10 py-7 text-center font-black"><span className="bg-slate-100 px-5 py-2 rounded-xl text-slate-600">{(r.totalSecs/36000).toFixed(2)}</span></td>
                                                             <td className="px-10 py-7 text-right font-black text-[#f37021] text-2xl tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
                                                         </tr>
@@ -479,7 +546,6 @@
                                                                 <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}>
                                                                     <i data-lucide="fingerprint"></i>
                                                                 </button>
-                                                                {/* NEW DELETE EMPLOYEE BUTTON */}
                                                                 <button onClick={async ()=>{if(confirm(`Permanently delete ${p.full_name}? All their records will be lost.`)){await sb.from('profiles').delete().eq('id',p.id); refreshData();}}} className="p-4 bg-red-100 text-red-600 rounded-2xl btn-3d">
                                                                     <i data-lucide="trash-2"></i>
                                                                 </button>
@@ -495,7 +561,7 @@
                         </div>
                     )}
 
-                    {/* MODALS SECTION - UNCHANGED */}
+                    {/* MODALS SECTION */}
                     {isStaffModal && (
                         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 text-center animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
@@ -508,7 +574,7 @@
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("FAILED: Ensure columns 'shift_start' and 'shift_end' exist in your Supabase table."); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("FAILED: Ensure columns exist."); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
                                 </div>
                             </div>
                         </div>
@@ -524,7 +590,7 @@
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); if (error) { alert("ERROR: Could not save shift times. Have you added 'shift_start' and 'shift_end' columns to your Supabase table?"); console.error(error); } else { playSfx('success'); } setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#3730a3] uppercase text-xs">Save Changes</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#3730a3] uppercase text-xs">Save Changes</button></div>
                                 </div>
                             </div>
                         </div>
