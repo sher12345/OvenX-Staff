@@ -13,8 +13,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root { 
-            --red: #8b0000; --orange: #f37021; --dark-orange: #b34e12; 
-            --navy: #0F172A; --bg: #fff9f5; 
+            --red: #8b0000; 
+            --orange: #f37021; 
+            --dark-orange: #b34e12; 
+            --navy: #0F172A; 
+            --bg: #fff9f5; 
         }
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
@@ -61,7 +64,10 @@
             border: 3px solid #fff; 
         }
 
-        @keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes pulse-live { 
+            0%, 100% { opacity: 1; } 
+            50% { opacity: 0.3; } 
+        }
         .live-dot { animation: pulse-live 1.5s infinite; }
         .animate-fade { animation: fadeIn 0.3s ease-out forwards; }
         @keyframes fadeIn { 
@@ -144,11 +150,12 @@
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // REAL-TIME ENGINE
+            // --- REAL-TIME REFRESH ENGINE ---
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
                     setCurrentTime(Date.now());
+                    // Auto-refresh data when in Admin Summary for live updates
                     if (view === 'admin' && adminTab === 'overview') {
                         refreshData();
                     }
@@ -185,12 +192,6 @@
                 const { data: pay } = await sb.from('monthly_payroll').select('*');
                 const { data: l } = await sb.from('attendance').select('*, profiles(*)').order('check_in', { ascending: false });
                 setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
-            };
-
-            const toggleUniform = async (shiftId, currentStatus) => {
-                playSfx('pop');
-                await sb.from('attendance').update({ uniform: !currentStatus }).eq('id', shiftId);
-                refreshData();
             };
 
             const handleRegisterFinger = async (user) => {
@@ -252,9 +253,16 @@
                 } else { playSfx('error'); setPin(''); }
             };
 
+            const toggleUniform = async (shiftId, currentStatus) => {
+                playSfx('pop');
+                await sb.from('attendance').update({ uniform: !currentStatus }).eq('id', shiftId);
+                refreshData();
+            };
+
             const toggleShift = async (type) => {
                 playSfx('pop');
                 if (type === 'in') {
+                    // NEW SHIFT: Auto-mark uniform as True
                     const { data } = await sb.from('attendance').insert([{ employee_id: employee.id, uniform: true }]).select().single();
                     setEmployee(prev => ({ ...prev, currentShift: data }));
                 } else {
@@ -268,6 +276,7 @@
                 const now = new Date(currentTime);
                 const curH = now.getHours();
                 
+                // RESTAURANT CYCLE LOGIC (10AM - 2AM)
                 let startCycle = new Date(now);
                 if (curH < 10) startCycle.setDate(now.getDate() - 1);
                 startCycle.setHours(10, 0, 0, 0);
@@ -276,7 +285,6 @@
                     const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
                     const shiftsThisCycle = logs.filter(l => l.employee_id === profile.id && new Date(l.check_in) >= startCycle);
                     
-                    // CALCULATE SECONDS WORKED THIS SPECIFIC DAY/CYCLE
                     let cycleSecs = 0;
                     shiftsThisCycle.forEach(l => {
                         const start = new Date(l.check_in).getTime();
@@ -288,33 +296,51 @@
                     const lastShift = shiftsThisCycle[0];
 
                     let status = "Offline";
-                    if (activeShift) status = "Present";
-                    else if (shiftsThisCycle.length > 0) status = "Closed";
-                    else if (curH >= 10 || curH < 2) status = "Pending";
-                    else if (curH >= 2 && curH < 10) status = "Holiday";
+                    if (activeShift) {
+                        status = "Present";
+                    } else if (shiftsThisCycle.length > 0) {
+                        status = "Closed";
+                    } else if (curH >= 10 || curH < 2) {
+                        status = "Pending";
+                    } else if (curH >= 2 && curH < 10) {
+                        status = "Holiday";
+                    }
 
                     return { 
                         ...profile, 
                         totalSecs: cycleSecs, 
                         salary, 
                         isActive: !!activeShift, 
-                        activeShiftId: activeShift?.id, 
-                        uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : null),
+                        activeShiftId: activeShift?.id || lastShift?.id, 
+                        uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : true),
                         adminStatus: status
                     };
                 });
             }, [profiles, logs, currentTime]);
 
+            const exportExcel = () => {
+                playSfx('pop');
+                let csv = "Employee Name,ID,Daily Status,Uniform Status,Time Worked Today,Today Earnings(PKR)\n";
+                adminProcessedData.forEach(r => {
+                    const h = Math.floor(r.totalSecs/3600); 
+                    const m = Math.floor((r.totalSecs%3600)/60);
+                    const uniformMark = (r.adminStatus === 'Pending' || r.adminStatus === 'Holiday') ? "N/A" : (r.uniform ? "OK" : "OFF");
+                    const statusText = r.adminStatus === 'Holiday' ? 'ABSENT / HOLIDAY' : r.adminStatus;
+                    csv += `${r.full_name},${r.display_id},${statusText},${uniformMark},${h}h ${m}m,${r.salary}\n`;
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); 
+                a.href = url; 
+                a.download = `OvenX_Intelligence_Report_${new Date().toLocaleDateString()}.csv`;
+                a.click(); 
+                playSfx('success');
+            };
+
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => {
                     const matchSearch = l.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) || l.profiles?.display_id?.includes(search);
-                    const logDate = new Date(l.check_in);
-                    const now = new Date();
-                    let matchTime = true;
-                    if (timeFilter === 'day') matchTime = logDate.toDateString() === now.toDateString();
-                    if (timeFilter === 'week') matchTime = logDate >= new Date(now.setDate(now.getDate() - 7));
-                    if (timeFilter === 'month') matchTime = logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
-                    return matchSearch && matchTime;
+                    return matchSearch;
                 }).map(log => {
                     const start = new Date(log.check_in).getTime();
                     const end = log.check_out ? new Date(log.check_out).getTime() : currentTime;
@@ -322,28 +348,13 @@
                     const earned = ((diff / 36000) * (log.profiles?.daily_rate || 0)).toFixed(2);
                     return { ...log, diff, earned };
                 });
-            }, [logs, search, timeFilter, currentTime]);
-
-            const exportExcel = () => {
-                playSfx('pop');
-                let csv = "Employee Name,ID,Daily Status,Uniform,Time Worked Today,Cycle Earnings(PKR)\n";
-                adminProcessedData.forEach(r => {
-                    const h = Math.floor(r.totalSecs/3600); 
-                    const m = Math.floor((r.totalSecs%3600)/60);
-                    const uniformMark = r.uniform === null ? "N/A" : (r.uniform ? "OK" : "OFF");
-                    const statusText = r.adminStatus === 'Holiday' ? 'ABSENT / HOLIDAY' : r.adminStatus;
-                    csv += `${r.full_name},${r.display_id},${statusText},${uniformMark},${h}h ${m}m,${r.salary}\n`;
-                });
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = `OvenX_Report_${new Date().toLocaleDateString()}.csv`;
-                a.click(); playSfx('success');
-            };
+            }, [logs, search, currentTime]);
 
             const toLocalISO = (iso) => iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 
             return (
                 <div className="min-h-screen flex flex-col">
+                    {/* NAVIGATION BAR */}
                     <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center sticky top-0 z-50">
                         <div className="flex items-center gap-3">
                             <p className="text-white font-black text-3xl tracking-tighter leading-none uppercase">OVEN <span className="text-[#f37021]">X</span></p>
@@ -383,14 +394,12 @@
                                     <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">ID: {employee.display_id}</p>
                                     <div className="grid grid-cols-2 gap-5 mb-8">
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Cycle Earnings</p>
-                                            <p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Previous PKR</p>
+                                            <p className="text-2xl font-black text-slate-800">Rs. {employee.stats?.calculated_salary?.toLocaleString() || 0}</p>
                                         </div>
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Time (Today)</p>
-                                            <p className="text-2xl font-black text-slate-800 font-mono">
-                                                {Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h
-                                            </p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Shift Count</p>
+                                            <p className="text-2xl font-black text-slate-800 font-mono">{employee.stats?.days_worked || 0}</p>
                                         </div>
                                     </div>
                                     {employee.currentShift ? (
@@ -410,6 +419,7 @@
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
+                            {/* ADMIN SIDEBAR */}
                             <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021] md:h-full md:sticky md:top-20">
                                 <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
                                 <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
@@ -420,7 +430,7 @@
                                 {adminTab === 'overview' && (
                                     <div className="animate-fade">
                                         <div className="flex justify-between items-start mb-10">
-                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Intelligence Summary</h2>
+                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] mb-10 uppercase">Intelligence Summary</h2>
                                             <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
                                                 <i data-lucide="download"></i> EXCEL REPORT
                                             </button>
@@ -452,14 +462,14 @@
                                                                 <div className="flex items-center gap-3">
                                                                     {(r.isActive || r.adminStatus === 'Closed') && (
                                                                         <button onClick={() => { if(r.isActive) toggleUniform(r.activeShiftId, r.uniform) }}
-                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-200 text-slate-400 shadow-[0_4px_0px_#cbd5e1]'}`}>
                                                                             {r.uniform ? 'Uniform OK' : 'Uniform OFF'}
                                                                         </button>
                                                                     )}
                                                                     {r.adminStatus === 'Present' ? (
                                                                         <span className="bg-emerald-100 text-emerald-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-200">PRESENT</span>
                                                                     ) : r.adminStatus === 'Closed' ? (
-                                                                        <span className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-600">Shift Closed</span>
+                                                                        <span className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-emerald-600 shadow-sm">Shift Closed</span>
                                                                     ) : r.adminStatus === 'Pending' ? (
                                                                         <span className="bg-indigo-50 text-indigo-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-indigo-100 italic">Pending...</span>
                                                                     ) : r.adminStatus === 'Holiday' ? (
@@ -487,8 +497,8 @@
                                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
                                             <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Archives</h2>
                                             <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm">
-                                                <input placeholder="Search..." value={search} onChange={(e)=>setSearch(e.target.value)}
-                                                    className="pl-6 py-3 bg-slate-50 rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021]" />
+                                                <input placeholder="Search records..." value={search} onChange={(e)=>setSearch(e.target.value)}
+                                                    className="pl-6 py-3 bg-slate-50 rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021] w-full lg:w-64" />
                                             </div>
                                         </div>
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
@@ -506,8 +516,8 @@
                                                             </td>
                                                             <td className="px-8 py-6 text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
                                                             <td className="px-8 py-6 text-right flex justify-end gap-2">
-                                                                <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
-                                                                <button onClick={async ()=>{if(confirm("Delete Record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                                <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
+                                                                <button onClick={async ()=>{if(confirm("Delete record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -539,15 +549,9 @@
                                                                 </div>
                                                             </td>
                                                             <td className="px-10 py-6 text-right flex justify-end gap-3">
-                                                                <button onClick={()=>setEditStaff(p)} className="p-4 bg-slate-50 text-slate-600 rounded-2xl btn-3d">
-                                                                    <i data-lucide="edit"></i>
-                                                                </button>
-                                                                <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}>
-                                                                    <i data-lucide="fingerprint"></i>
-                                                                </button>
-                                                                <button onClick={async ()=>{if(confirm(`Permanently delete ${p.full_name}? All their records will be lost.`)){await sb.from('profiles').delete().eq('id',p.id); refreshData();}}} className="p-4 bg-red-100 text-red-600 rounded-2xl btn-3d">
-                                                                    <i data-lucide="trash-2"></i>
-                                                                </button>
+                                                                <button onClick={()=>setEditStaff(p)} className="p-4 bg-slate-50 text-slate-600 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit"></i></button>
+                                                                <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d shadow-sm border ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}><i data-lucide="fingerprint"></i></button>
+                                                                <button onClick={async ()=>{if(confirm(`Permanently delete ${p.full_name}?`)){await sb.from('profiles').delete().eq('id',p.id); refreshData();}}} className="p-4 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2"></i></button>
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -560,34 +564,35 @@
                         </div>
                     )}
 
-                    {/* MODALS */}
+                    {/* MODAL: REGISTER STAFF */}
                     {isStaffModal && (
                         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
-                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Register Staff</h3>
+                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase text-center">Register Staff</h3>
                                 <div className="space-y-6">
-                                    <input placeholder="Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
-                                    <input placeholder="PIN" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
-                                    <input placeholder="Rate" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
+                                    <input placeholder="Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
+                                    <input placeholder="PIN" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
+                                    <input placeholder="Rate" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
+                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
+                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("SQL ERROR"); refreshData(); setIsStaffModal(false); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
+                    {/* MODAL: UPDATE STAFF */}
                     {editStaff && (
                         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
-                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl text-center">
                                 <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Update Staff</h3>
                                 <div className="space-y-6">
-                                    <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Full Name</label><input className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold" value={editStaff.full_name} onChange={e=>setEditStaff({...editStaff, full_name:e.target.value})} /></div>
+                                    <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Full Name</label><input className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={editStaff.full_name} onChange={e=>setEditStaff({...editStaff, full_name:e.target.value})} /></div>
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
-                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
+                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
+                                        <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
                                     </div>
                                     <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#3730a3] uppercase text-xs">Save Changes</button></div>
                                 </div>
@@ -595,13 +600,14 @@
                         </div>
                     )}
 
+                    {/* MODAL: OVERRIDE LOGS */}
                     {editLog && (
                         <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
-                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl text-center">
                                 <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] uppercase">Override Record</h3>
                                 <div className="space-y-10 text-left font-bold italic">
-                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">Clock-In</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
-                                    <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] uppercase font-black">Clock-Out</label>{editLog.check_out && <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[10px] text-red-500 uppercase font-black underline">Return to Live</button>}</div><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} /></div>
+                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">Clock-In</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
+                                    <div className="space-y-2"><div className="flex justify-between items-center"><label className="text-[10px] uppercase font-black">Clock-Out</label>{editLog.check_out && <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[10px] text-red-500 uppercase font-black underline">Return to Live</button>}</div><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} /></div>
                                     <div className="flex gap-6 pt-6"><button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Discard</button><button onClick={async ()=>{await sb.from('attendance').update({check_in: editLog.check_in, check_out: editLog.check_out}).eq('id', editLog.id); setEditLog(null); refreshData();}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]">Update Record</button></div>
                                 </div>
                             </div>
