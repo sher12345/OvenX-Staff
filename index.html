@@ -1,3 +1,5 @@
+--- START OF FILE Paste February 09, 2026 - 6:53PM ---
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -142,7 +144,6 @@
             const [search, setSearch] = useState('');
             const [timeFilter, setTimeFilter] = useState('all');
             const [profiles, setProfiles] = useState([]);
-            const [payroll, setPayroll] = useState([]);
             const [logs, setLogs] = useState([]);
             const [currentTime, setCurrentTime] = useState(Date.now());
             const [editLog, setEditLog] = useState(null);
@@ -150,15 +151,12 @@
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // --- REAL-TIME REFRESH ENGINE ---
+            // REAL-TIME DASHBOARD ENGINE
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
                     setCurrentTime(Date.now());
-                    // Auto-refresh data when in Admin Summary for live updates
-                    if (view === 'admin' && adminTab === 'overview') {
-                        refreshData();
-                    }
+                    if (view === 'admin' && adminTab === 'overview') refreshData();
                     if (window.lucide) window.lucide.createIcons();
                 }, 2000);
                 return () => clearInterval(timer);
@@ -189,9 +187,8 @@
 
             const refreshData = async () => {
                 const { data: p } = await sb.from('profiles').select('*').order('created_at', { ascending: false });
-                const { data: pay } = await sb.from('monthly_payroll').select('*');
                 const { data: l } = await sb.from('attendance').select('*, profiles(*)').order('check_in', { ascending: false });
-                setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
+                setProfiles(p || []); setLogs(l || []);
             };
 
             const handleRegisterFinger = async (user) => {
@@ -227,8 +224,7 @@
                     const { data: user } = await sb.from('profiles').select('*').eq('fingerprint_id', credIdB64).single();
                     if (user) {
                         const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
-                        const { data: stats } = await sb.from('monthly_payroll').select('*').eq('display_id', user.display_id).single();
-                        setEmployee({ ...user, currentShift: session, stats });
+                        setEmployee({ ...user, currentShift: session });
                         playSfx('success');
                     } else { alert("Fingerprint not recognized."); playSfx('error'); }
                 } catch (err) { console.error(err); }
@@ -247,8 +243,7 @@
                 const { data: user } = await sb.from('profiles').select('*').eq('display_id', pin).single();
                 if (user) {
                     const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
-                    const { data: stats } = await sb.from('monthly_payroll').select('*').eq('display_id', pin).single();
-                    setEmployee({ ...user, currentShift: session, stats });
+                    setEmployee({ ...user, currentShift: session });
                     setPin(''); playSfx('success');
                 } else { playSfx('error'); setPin(''); }
             };
@@ -262,7 +257,6 @@
             const toggleShift = async (type) => {
                 playSfx('pop');
                 if (type === 'in') {
-                    // NEW SHIFT: Auto-mark uniform as True
                     const { data } = await sb.from('attendance').insert([{ employee_id: employee.id, uniform: true }]).select().single();
                     setEmployee(prev => ({ ...prev, currentShift: data }));
                 } else {
@@ -275,8 +269,6 @@
             const adminProcessedData = useMemo(() => {
                 const now = new Date(currentTime);
                 const curH = now.getHours();
-                
-                // RESTAURANT CYCLE LOGIC (10AM - 2AM)
                 let startCycle = new Date(now);
                 if (curH < 10) startCycle.setDate(now.getDate() - 1);
                 startCycle.setHours(10, 0, 0, 0);
@@ -296,15 +288,10 @@
                     const lastShift = shiftsThisCycle[0];
 
                     let status = "Offline";
-                    if (activeShift) {
-                        status = "Present";
-                    } else if (shiftsThisCycle.length > 0) {
-                        status = "Closed";
-                    } else if (curH >= 10 || curH < 2) {
-                        status = "Pending";
-                    } else if (curH >= 2 && curH < 10) {
-                        status = "Holiday";
-                    }
+                    if (activeShift) status = "Present";
+                    else if (shiftsThisCycle.length > 0) status = "Closed";
+                    else if (curH >= 10 || curH < 2) status = "Pending";
+                    else if (curH >= 2 && curH < 10) status = "Holiday";
 
                     return { 
                         ...profile, 
@@ -320,20 +307,72 @@
 
             const exportExcel = () => {
                 playSfx('pop');
-                let csv = "Employee Name,ID,Daily Status,Uniform Status,Time Worked Today,Today Earnings(PKR)\n";
+                
+                // Colors for Excel
+                const getColor = (status) => {
+                    if (status === 'Present') return '#dcfce7'; // Light Green
+                    if (status === 'Closed') return '#e0f2fe'; // Light Blue
+                    if (status === 'Pending') return '#fef9c3'; // Light Yellow
+                    if (status === 'Holiday') return '#fee2e2'; // Light Red
+                    return '#ffffff';
+                };
+
+                let html = `
+                    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                    <head>
+                        <meta charset="UTF-8">
+                        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>OvenX Report</x:Name><x:WorksheetOptions><x:DisplayGridlines/><x:AutoFilter/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+                        <style>
+                            table { border-collapse: collapse; width: 100%; }
+                            th { background-color: #8b0000; color: white; border: 1px solid #000; padding: 10px; font-weight: bold; }
+                            td { border: 1px solid #ccc; padding: 8px; font-family: sans-serif; }
+                            .header { font-size: 20px; font-weight: bold; text-align: center; color: #8b0000; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">OvenX Intelligence Daily Report - ${new Date().toLocaleDateString()}</div>
+                        <br/>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Employee Name</th>
+                                    <th>Staff ID</th>
+                                    <th>Daily Status</th>
+                                    <th>Uniform Status</th>
+                                    <th>Work Duration</th>
+                                    <th>Today Earnings (PKR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
                 adminProcessedData.forEach(r => {
-                    const h = Math.floor(r.totalSecs/3600); 
-                    const m = Math.floor((r.totalSecs%3600)/60);
-                    const uniformMark = (r.adminStatus === 'Pending' || r.adminStatus === 'Holiday') ? "N/A" : (r.uniform ? "OK" : "OFF");
+                    const h = Math.floor(r.totalSecs / 3600);
+                    const m = Math.floor((r.totalSecs % 3600) / 60);
+                    const rowColor = getColor(r.adminStatus);
+                    const uniformText = (r.adminStatus === 'Pending' || r.adminStatus === 'Holiday') ? "N/A" : (r.uniform ? "OK" : "OFF");
                     const statusText = r.adminStatus === 'Holiday' ? 'ABSENT / HOLIDAY' : r.adminStatus;
-                    csv += `${r.full_name},${r.display_id},${statusText},${uniformMark},${h}h ${m}m,${r.salary}\n`;
+
+                    html += `
+                        <tr style="background-color: ${rowColor};">
+                            <td>${r.full_name}</td>
+                            <td style="text-align: center;">${r.display_id}</td>
+                            <td style="text-align: center; font-weight: bold;">${statusText}</td>
+                            <td style="text-align: center;">${uniformText}</td>
+                            <td style="text-align: center;">${h}h ${m}m</td>
+                            <td style="text-align: right; font-weight: bold;">${r.salary}</td>
+                        </tr>
+                    `;
                 });
-                const blob = new Blob([csv], { type: 'text/csv' });
+
+                html += `</tbody></table></body></html>`;
+
+                const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); 
-                a.href = url; 
-                a.download = `OvenX_Intelligence_Report_${new Date().toLocaleDateString()}.csv`;
-                a.click(); 
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `OvenX_Report_${new Date().toLocaleDateString()}.xls`;
+                a.click();
                 playSfx('success');
             };
 
@@ -354,13 +393,12 @@
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    {/* NAVIGATION BAR */}
                     <nav className="h-20 bg-[#8b0000] border-b-[6px] border-[#f37021] px-8 flex justify-between items-center sticky top-0 z-50">
                         <div className="flex items-center gap-3">
                             <p className="text-white font-black text-3xl tracking-tighter leading-none uppercase">OVEN <span className="text-[#f37021]">X</span></p>
                         </div>
-                        <div className="flex items-center gap-8">
-                            <div className="text-right hidden md:block text-white">
+                        <div className="flex items-center gap-8 text-white">
+                            <div className="text-right hidden md:block">
                                 <p className="text-[10px] font-black uppercase tracking-widest opacity-60">System Time</p>
                                 <p className="text-sm font-black">{new Date(currentTime).toLocaleTimeString()}</p>
                             </div>
@@ -382,11 +420,9 @@
                                                 className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
                                         ))}
                                     </div>
-                                    <div className="border-t pt-8">
-                                        <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm uppercase tracking-widest">
-                                            <i data-lucide="fingerprint"></i> SCAN FINGER
-                                        </button>
-                                    </div>
+                                    <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm uppercase tracking-widest">
+                                        <i data-lucide="fingerprint"></i> SCAN FINGER
+                                    </button>
                                 </div>
                             ) : (
                                 <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
@@ -394,12 +430,14 @@
                                     <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em] mt-4 mb-10 leading-none tracking-widest">ID: {employee.display_id}</p>
                                     <div className="grid grid-cols-2 gap-5 mb-8">
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Previous PKR</p>
-                                            <p className="text-2xl font-black text-slate-800">Rs. {employee.stats?.calculated_salary?.toLocaleString() || 0}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Cycle Earnings</p>
+                                            <p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p>
                                         </div>
                                         <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white text-left">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Shift Count</p>
-                                            <p className="text-2xl font-black text-slate-800 font-mono">{employee.stats?.days_worked || 0}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Time (Today)</p>
+                                            <p className="text-2xl font-black text-slate-800 font-mono">
+                                                {Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h
+                                            </p>
                                         </div>
                                     </div>
                                     {employee.currentShift ? (
@@ -408,10 +446,7 @@
                                             <button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] italic">FINISH SHIFT</button>
                                         </div>
                                     ) : (
-                                        <div className="bg-[#fff9f5] p-12 rounded-[3.5rem] border-4 border-[#f37021] border-dashed">
-                                            <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight italic uppercase opacity-30">Shift Waiting</h3>
-                                            <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] italic">START SHIFT</button>
-                                        </div>
+                                        <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] italic uppercase">Start Shift</button>
                                     )}
                                     <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] tracking-widest uppercase">Logout</button>
                                 </div>
@@ -419,7 +454,6 @@
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-80px)] overflow-hidden animate-fade">
-                            {/* ADMIN SIDEBAR */}
                             <aside className="w-full md:w-72 admin-sidebar flex flex-row md:flex-col shrink-0 p-6 gap-2 border-r-[6px] border-[#f37021] md:h-full md:sticky md:top-20">
                                 <button onClick={()=>setAdminTab('overview')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='overview'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="layout"></i> Dashboard</button>
                                 <button onClick={()=>setAdminTab('staff')} className={`flex items-center gap-4 px-6 py-4 text-sm font-bold transition-all ${adminTab==='staff'?'sidebar-active':'text-white/60 hover:text-white'}`}><i data-lucide="users"></i> Management</button>
@@ -430,7 +464,7 @@
                                 {adminTab === 'overview' && (
                                     <div className="animate-fade">
                                         <div className="flex justify-between items-start mb-10">
-                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] mb-10 uppercase">Intelligence Summary</h2>
+                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Intelligence Summary</h2>
                                             <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
                                                 <i data-lucide="download"></i> EXCEL REPORT
                                             </button>
@@ -462,7 +496,7 @@
                                                                 <div className="flex items-center gap-3">
                                                                     {(r.isActive || r.adminStatus === 'Closed') && (
                                                                         <button onClick={() => { if(r.isActive) toggleUniform(r.activeShiftId, r.uniform) }}
-                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-200 text-slate-400 shadow-[0_4px_0px_#cbd5e1]'}`}>
+                                                                            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d shadow-[0_4px_0px_rgba(0,0,0,0.1)]' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
                                                                             {r.uniform ? 'Uniform OK' : 'Uniform OFF'}
                                                                         </button>
                                                                     )}
@@ -496,10 +530,8 @@
                                     <div className="animate-fade">
                                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-6">
                                             <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Archives</h2>
-                                            <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm">
-                                                <input placeholder="Search records..." value={search} onChange={(e)=>setSearch(e.target.value)}
-                                                    className="pl-6 py-3 bg-slate-50 rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021] w-full lg:w-64" />
-                                            </div>
+                                            <input placeholder="Search records..." value={search} onChange={(e)=>setSearch(e.target.value)}
+                                                className="pl-6 py-3 bg-white rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021] shadow-sm w-full lg:w-64" />
                                         </div>
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
                                             <table className="w-full text-left text-sm">
@@ -517,7 +549,7 @@
                                                             <td className="px-8 py-6 text-indigo-600 text-lg font-black">Rs. {l.earned}</td>
                                                             <td className="px-8 py-6 text-right flex justify-end gap-2">
                                                                 <button onClick={()=>setEditLog(l)} className="p-3 bg-slate-50 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit-3" className="w-4 h-4"></i></button>
-                                                                <button onClick={async ()=>{if(confirm("Delete record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                                <button onClick={async ()=>{if(confirm("Delete Record?")){await sb.from('attendance').delete().eq('id',l.id); refreshData();}}} className="p-3 bg-red-100 text-red-600 rounded-2xl btn-3d shadow-sm border border-red-200"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -536,18 +568,14 @@
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic text-[11px]">
                                             <table className="w-full text-left font-bold">
                                                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b">
-                                                    <tr><th className="px-10 py-6">Member Details</th><th className="px-10 py-6 text-center">ID</th><th className="px-10 py-6 text-center">Shift Schedule</th><th className="px-10 py-6 text-right">Actions</th></tr>
+                                                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6 text-center">ID</th><th className="px-10 py-6 text-center">Shift Schedule</th><th className="px-10 py-6 text-right">Actions</th></tr>
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {profiles.map(p => (
                                                         <tr key={p.id}>
                                                             <td className="px-10 py-6 text-base text-slate-900 font-black">{p.full_name}</td>
                                                             <td className="px-10 py-6 font-mono text-[#f37021] text-center tracking-[0.4em] font-black">{p.display_id}</td>
-                                                            <td className="px-10 py-6 text-center">
-                                                                <div className="inline-block bg-slate-100 px-4 py-2 rounded-2xl text-slate-600 font-mono font-black">
-                                                                    {p.shift_start || '--:--'} → {p.shift_end || '--:--'}
-                                                                </div>
-                                                            </td>
+                                                            <td className="px-10 py-6 text-center"><div className="inline-block bg-slate-100 px-4 py-2 rounded-2xl text-slate-600 font-mono font-black">{p.shift_start || '--:--'} → {p.shift_end || '--:--'}</div></td>
                                                             <td className="px-10 py-6 text-right flex justify-end gap-3">
                                                                 <button onClick={()=>setEditStaff(p)} className="p-4 bg-slate-50 text-slate-600 rounded-2xl btn-3d shadow-sm border"><i data-lucide="edit"></i></button>
                                                                 <button onClick={() => handleRegisterFinger(p)} className={`p-4 rounded-2xl btn-3d shadow-sm border ${p.fingerprint_id ? 'bg-emerald-500 text-white shadow-[0_4px_0px_#065f46]' : 'bg-slate-50 text-slate-400'}`}><i data-lucide="fingerprint"></i></button>
@@ -564,12 +592,12 @@
                         </div>
                     )}
 
-                    {/* MODAL: REGISTER STAFF */}
+                    {/* MODALS */}
                     {isStaffModal && (
-                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
-                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase text-center">Register Staff</h3>
-                                <div className="space-y-6">
+                                <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Register Staff</h3>
+                                <div className="space-y-6 text-left">
                                     <input placeholder="Name" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={newStaff.name} onChange={e=>setNewStaff({...newStaff, name:e.target.value})} />
                                     <input placeholder="PIN" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-mono outline-none" value={newStaff.id} onChange={e=>setNewStaff({...newStaff, id:e.target.value})} />
                                     <input placeholder="Rate" type="number" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.rate} onChange={e=>setNewStaff({...newStaff, rate:e.target.value})} />
@@ -577,33 +605,31 @@
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("SQL ERROR"); refreshData(); setIsStaffModal(false); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); refreshData(); setIsStaffModal(false); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#b34e12] uppercase text-xs">Activate</button></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* MODAL: UPDATE STAFF */}
                     {editStaff && (
-                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
-                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl text-center">
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-md shadow-2xl">
                                 <h3 className="text-3xl font-black mb-8 italic text-[#8b0000] uppercase">Update Staff</h3>
-                                <div className="space-y-6">
+                                <div className="space-y-6 text-left">
                                     <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Full Name</label><input className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] font-bold outline-none" value={editStaff.full_name} onChange={e=>setEditStaff({...editStaff, full_name:e.target.value})} /></div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_start || ''} onChange={e=>setEditStaff({...editStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Shift End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={editStaff.shift_end || ''} onChange={e=>setEditStaff({...editStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#3730a3] uppercase text-xs">Save Changes</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setEditStaff(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ await sb.from('profiles').update({full_name:editStaff.full_name, shift_start:editStaff.shift_start, shift_end:editStaff.shift_end}).eq('id', editStaff.id); setEditStaff(null); refreshData(); }} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0_#3730a3] uppercase text-xs">Save Changes</button></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* MODAL: OVERRIDE LOGS */}
                     {editLog && (
-                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
-                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl text-center">
+                        <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade text-center">
+                            <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
                                 <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] uppercase">Override Record</h3>
                                 <div className="space-y-10 text-left font-bold italic">
                                     <div className="space-y-2"><label className="text-[10px] uppercase font-black">Clock-In</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
