@@ -1,3 +1,5 @@
+--- START OF FILE Paste February 09, 2026 - 6:53PM ---
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -144,13 +146,13 @@
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // REAL-TIME ENGINE: Runs every 2 seconds to keep dashboard live
+            // REAL-TIME ENGINE: Syncs dashboard every 2 seconds
             useEffect(() => { 
                 refreshData();
                 const timer = setInterval(() => {
                     setCurrentTime(Date.now());
                     if (view === 'admin' && adminTab === 'overview') {
-                        refreshData(); // Only auto-fetch when in admin dashboard to save bandwidth
+                        refreshData();
                     }
                     if (window.lucide) window.lucide.createIcons();
                 }, 2000);
@@ -289,15 +291,10 @@
                     const salary = ((totalSecs / 36000) * profile.daily_rate).toFixed(2);
 
                     let status = "Offline";
-                    if (activeShift) {
-                        status = "Present";
-                    } else if (workedThisCycle) {
-                        status = "Closed";
-                    } else if (curH >= 10 || curH < 2) {
-                        status = "Pending";
-                    } else if (curH >= 2 && curH < 10) {
-                        status = "Holiday";
-                    }
+                    if (activeShift) status = "Present";
+                    else if (workedThisCycle) status = "Closed";
+                    else if (curH >= 10 || curH < 2) status = "Pending";
+                    else if (curH >= 2 && curH < 10) status = "Holiday";
 
                     return { 
                         ...profile, 
@@ -305,7 +302,7 @@
                         salary, 
                         isActive: !!activeShift, 
                         activeShiftId: activeShift?.id, 
-                        uniform: activeShift?.uniform,
+                        uniform: activeShift ? activeShift.uniform : null,
                         adminStatus: status
                     };
                 });
@@ -332,14 +329,16 @@
 
             const exportExcel = () => {
                 playSfx('pop');
-                let csv = "Employee,ID,Date,Clock-In,Clock-Out,Duration,Salary(PKR)\n";
-                filteredArchives.forEach(l => {
-                    const h = Math.floor(l.diff/3600); const m = Math.floor((l.diff%3600)/60);
-                    csv += `${l.profiles?.full_name},${l.profiles?.display_id},${new Date(l.check_in).toDateString()},${new Date(l.check_in).toLocaleTimeString()},${l.check_out ? new Date(l.check_out).toLocaleTimeString() : 'LIVE'},${h}h ${m}m,${l.earned}\n`;
+                let csv = "Employee Name,ID,Status,Uniform,Total Hours,Salary(PKR)\n";
+                adminProcessedData.forEach(r => {
+                    const h = Math.floor(r.totalSecs/3600); 
+                    const m = Math.floor((r.totalSecs%3600)/60);
+                    const uniformMark = r.isActive ? (r.uniform ? "OK" : "OFF") : "N/A";
+                    csv += `${r.full_name},${r.display_id},${r.adminStatus},${uniformMark},${h}h ${m}m,${r.salary}\n`;
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = `Report_${new Date().toLocaleDateString()}.csv`;
+                const a = document.createElement('a'); a.href = url; a.download = `OvenX_Report_${new Date().toLocaleDateString()}.csv`;
                 a.click(); playSfx('success');
             };
 
@@ -420,7 +419,12 @@
                             <main className="flex-1 p-8 md:p-12 overflow-y-auto bg-[#F8FAFC]">
                                 {adminTab === 'overview' && (
                                     <div className="animate-fade">
-                                        <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] mb-10 uppercase">Intelligence Summary</h2>
+                                        <div className="flex justify-between items-start mb-10">
+                                            <h2 className="text-4xl font-black tracking-tighter italic text-[#8b0000] uppercase">Intelligence Summary</h2>
+                                            <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
+                                                <i data-lucide="download"></i> EXCEL REPORT
+                                            </button>
+                                        </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
                                             <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
                                                 <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">On-Duty Staff</p><p className="text-5xl font-black text-emerald-500 italic">{logs.filter(l=>!l.check_out).length}</p></div>
@@ -485,9 +489,6 @@
                                             <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm">
                                                 <input placeholder="Search..." value={search} onChange={(e)=>setSearch(e.target.value)}
                                                     className="pl-6 py-3 bg-slate-50 rounded-2xl text-xs font-bold outline-none border focus:border-[#f37021]" />
-                                                <button onClick={exportExcel} className="btn-3d bg-[#1a9648] text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 shadow-[0_4px_0px_#115c3a]">
-                                                    <i data-lucide="download"></i> EXCEL
-                                                </button>
                                             </div>
                                         </div>
                                         <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-bold italic">
@@ -572,7 +573,7 @@
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">Start</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_start} onChange={e=>setNewStaff({...newStaff, shift_start:e.target.value})} /></div>
                                         <div className="text-left"><label className="text-[10px] font-black uppercase ml-4">End</label><input type="time" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={newStaff.shift_end} onChange={e=>setNewStaff({...newStaff, shift_end:e.target.value})} /></div>
                                     </div>
-                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("FAILED: Ensure columns exist."); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
+                                    <div className="flex gap-4 pt-6"><button onClick={()=>setIsStaffModal(false)} className="flex-1 text-slate-400 uppercase text-xs font-black">Cancel</button><button onClick={async ()=>{ const { error } = await sb.from('profiles').insert([{full_name:newStaff.name, display_id:newStaff.id, daily_rate:newStaff.rate, shift_start:newStaff.shift_start, shift_end:newStaff.shift_end}]); if (error) alert("FAILED: Ensure columns shift_start/shift_end exist."); setIsStaffModal(false); refreshData(); }} className="flex-1 py-6 bg-[#f37021] text-white font-black rounded-[2rem] btn-3d shadow-[0_6px_0px_#b34e12] uppercase text-xs">Activate</button></div>
                                 </div>
                             </div>
                         </div>
