@@ -43,7 +43,6 @@
         const SUPABASE_KEY = 'sb_publishable_3JnTs-MS475tjzYWpK3d8g_4j81ObNT';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // --- BIOMETRIC HELPERS ---
         const bufferToBase64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
         const strToBuffer = (str) => new TextEncoder().encode(str);
 
@@ -113,7 +112,6 @@
                 setProfiles(p || []); setPayroll(pay || []); setLogs(l || []);
             };
 
-            // --- FIXED FINGERPRINT REGISTRATION (ADMIN) ---
             const handleRegisterFinger = async (user) => {
                 try {
                     playSfx('pop');
@@ -121,58 +119,37 @@
                     const createOptions = {
                         publicKey: {
                             challenge,
-                            rp: { name: "OvenX System" }, // Automatic domain detection
-                            user: {
-                                id: strToBuffer(user.id),
-                                name: user.display_id,
-                                displayName: user.full_name
-                            },
+                            rp: { name: "OvenX System" },
+                            user: { id: strToBuffer(user.id), name: user.display_id, displayName: user.full_name },
                             pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-                            authenticatorSelection: {
-                                authenticatorAttachment: "platform",
-                                residentKey: "required",
-                                userVerification: "required"
-                            },
+                            authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "required", userVerification: "required" },
                             timeout: 60000
                         }
                     };
                     const credential = await navigator.credentials.create(createOptions);
                     const credIdB64 = bufferToBase64(credential.rawId);
                     await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
-                    alert("Success! Fingerprint linked to " + user.full_name);
+                    alert("Success! Fingerprint linked");
                     playSfx('success');
                     refreshData();
-                } catch (err) {
-                    console.error(err);
-                    alert("Failed: " + err.message);
-                }
+                } catch (err) { alert("Failed: " + err.message); }
             };
 
-            // --- FIXED FINGERPRINT LOGIN (KIOSK) ---
             const handleFingerprintLogin = async () => {
                 try {
                     playSfx('pop');
                     const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
-                    const assertion = await navigator.credentials.get({
-                        publicKey: { challenge, userVerification: "required" }
-                    });
+                    const assertion = await navigator.credentials.get({ publicKey: { challenge, userVerification: "required" } });
                     if (!assertion) return;
-
                     const credIdB64 = bufferToBase64(assertion.rawId);
                     const { data: user } = await sb.from('profiles').select('*').eq('fingerprint_id', credIdB64).single();
-
                     if (user) {
                         const { data: session } = await sb.from('attendance').select('*').eq('employee_id', user.id).is('check_out', null).single();
                         const { data: stats } = await sb.from('monthly_payroll').select('*').eq('display_id', user.display_id).single();
                         setEmployee({ ...user, currentShift: session, stats });
                         playSfx('success');
-                    } else {
-                        alert("Fingerprint recognized by device but not linked to any OvenX ID.");
-                        playSfx('error');
                     }
-                } catch (err) {
-                    console.error(err);
-                }
+                } catch (err) { console.error(err); }
             };
 
             const handleAdminAccess = () => {
@@ -180,7 +157,6 @@
                 if (view === 'admin') return setView('kiosk');
                 const pass = prompt("Admin Password Required:");
                 if (pass === "75300") { setView('admin'); playSfx('success'); }
-                else if(pass !== null) { alert("Invalid Credentials"); playSfx('error'); }
             };
 
             const handleLogin = async () => {
@@ -206,6 +182,7 @@
                 refreshData();
             };
 
+            // --- FIXED: CALCULATION LOGIC FOR ADMIN OVERVIEW ---
             const adminProcessedData = useMemo(() => {
                 return profiles.map(profile => {
                     const finished = payroll.find(r => r.display_id === profile.display_id) || { total_seconds_worked: 0 };
@@ -218,6 +195,7 @@
                 });
             }, [profiles, payroll, logs, currentTime]);
 
+            // --- FIXED: CALCULATION LOGIC FOR ARCHIVES ---
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => {
                     const matchSearch = l.profiles?.full_name.toLowerCase().includes(search.toLowerCase()) || l.profiles?.display_id.includes(search);
@@ -229,8 +207,9 @@
                     if (timeFilter === 'month') matchTime = logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear();
                     return matchSearch && matchTime;
                 }).map(log => {
+                    const start = new Date(log.check_in);
                     const end = log.check_out ? new Date(log.check_out) : new Date(currentTime);
-                    const diff = Math.floor((end - new Date(log.check_in)) / 1000);
+                    const diff = Math.max(0, Math.floor((end - start) / 1000));
                     const earned = ((diff / 36000) * (log.profiles?.daily_rate || 0)).toFixed(2);
                     return { ...log, diff, earned };
                 });
@@ -248,6 +227,9 @@
                 const a = document.createElement('a'); a.href = url; a.download = `Report_${new Date().toLocaleDateString()}.csv`;
                 a.click(); playSfx('success');
             };
+
+            // Helper to format UTC ISO string to local input value
+            const toLocalISO = (iso) => iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -448,18 +430,51 @@
                         </div>
                     )}
 
+                    {/* --- FIXED: OVERRIDE MODAL WITH TIMEZONE & AUTO-CALC FIX --- */}
                     {editLog && (
                         <div className="fixed inset-0 bg-[#0F172A]/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-fade">
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
                                 <h3 className="text-3xl font-black mb-10 italic text-[#8b0000] uppercase">Override Shift</h3>
                                 <div className="space-y-10 text-left font-bold italic">
-                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">Start</label>
-                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editLog.check_in.slice(0, 16)} onChange={e=>setEditLog({...editLog, check_in:e.target.value})} /></div>
-                                    <div className="space-y-2"><label className="text-[10px] uppercase font-black">End</label>
-                                    <input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" value={editLog.check_out?.slice(0, 16) || ''} onChange={e=>setEditLog({...editLog, check_out:e.target.value})} /></div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] uppercase font-black">Clock-In Time</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" 
+                                            value={toLocalISO(editLog.check_in)} 
+                                            onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} 
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-[10px] uppercase font-black">Clock-Out Time</label>
+                                            {editLog.check_out && (
+                                                <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[10px] text-red-500 uppercase font-black underline">Return to Live</button>
+                                            )}
+                                        </div>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full p-6 bg-slate-50 border-2 rounded-[2rem]" 
+                                            value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} 
+                                            onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} 
+                                        />
+                                        {!editLog.check_out && <p className="text-[10px] text-emerald-600 mt-2 px-4">Worker is currently active (Live Timer)</p>}
+                                    </div>
                                     <div className="flex gap-6 pt-6">
                                         <button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs font-black">Discard</button>
-                                        <button onClick={async ()=>{await sb.from('attendance').update({check_in:editLog.check_in, check_out:editLog.check_out}).eq('id',editLog.id); setEditLog(null); refreshData();}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs">Update</button>
+                                        <button 
+                                            onClick={async ()=>{
+                                                await sb.from('attendance').update({
+                                                    check_in: editLog.check_in, 
+                                                    check_out: editLog.check_out
+                                                }).eq('id', editLog.id); 
+                                                setEditLog(null); 
+                                                refreshData(); 
+                                            }} 
+                                            className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]"
+                                        >
+                                            Update Records
+                                        </button>
                                     </div>
                                 </div>
                             </div>
