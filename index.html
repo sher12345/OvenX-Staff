@@ -25,7 +25,7 @@
         }
 
         body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
+            font-family: 'Plus Jakarta Sans', sans-serif;
             background: var(--bg); 
             color: #333; 
             overflow: hidden; 
@@ -249,88 +249,123 @@
             );
         };
 
-        const VisualIntelligence = ({ logs, adminData, scope }) => {
-            const lineRef = useRef(null);
-            const doughRef = useRef(null);
-            const charts = useRef({ line: null, dough: null });
+       const VisualIntelligence = ({ logs, adminData, scope }) => {
+    const lineRef = useRef(null);
+    const doughRef = useRef(null);
+    const charts = useRef({ line: null, dough: null });
+    const [chartData, setChartData] = useState({ labels: [], costPoints: [], counts: { Present: 0, Closed: 0, Other: 0 } });
+    const lastLogSignatureRef = useRef('');
+    const isFirstRunRef = useRef(true);
 
-            useEffect(() => {
-                if (!lineRef.current || !doughRef.current) return;
-                
-                // Destroy existing instances
-                if (charts.current.line) charts.current.line.destroy();
-                if (charts.current.dough) charts.current.dough.destroy();
+    // Process data only when logs actually change (not just reference)
+    useEffect(() => {
+        // Create a signature of current logs state
+        const currentSignature = logs.map(l => `${l.id}-${l.check_in}-${l.check_out}`).join('|');
+        
+        // Only process if data actually changed or first run
+        if (isFirstRunRef.current || currentSignature !== lastLogSignatureRef.current) {
+            const labels = [...Array(7)].map((_, i) => {
+                const d = new Date(); d.setDate(d.getDate() - (6 - i));
+                return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            });
 
-                // Process Line Chart Data (Trend)
-                const labels = [...Array(7)].map((_, i) => {
-                    const d = new Date(); d.setDate(d.getDate() - (6 - i));
-                    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                });
+            const costPoints = labels.map(label => {
+                return logs.filter(l => new Date(l.check_in).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) === label)
+                           .reduce((sum, log) => {
+                               const start = new Date(log.check_in);
+                               const end = log.check_out ? new Date(log.check_out) : new Date();
+                               const hrs = (end - start) / 3600000;
+                               return sum + (hrs * (log.profiles?.daily_rate / 10 || 0));
+                           }, 0);
+            });
 
-                const costPoints = labels.map(label => {
-                    return logs.filter(l => new Date(l.check_in).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) === label)
-                               .reduce((sum, log) => {
-                                   const start = new Date(log.check_in);
-                                   const end = log.check_out ? new Date(log.check_out) : new Date();
-                                   const hrs = (end - start) / 3600000;
-                                   return sum + (hrs * (log.profiles?.daily_rate / 10 || 0));
-                               }, 0);
-                });
+            const presentCount = logs.filter(l => !l.check_out).length;
+            const closedCount = new Set(logs.filter(l => l.check_out).map(l => l.employee_id)).size;
+            const otherCount = adminData.length - presentCount - closedCount;
 
-                charts.current.line = new Chart(lineRef.current, {
-                    type: 'line',
-                    data: {
-                        labels,
-                        datasets: [{
-                            data: costPoints,
-                            borderColor: '#f37021',
-                            backgroundColor: 'rgba(243, 112, 33, 0.05)',
-                            fill: true, tension: 0.4, borderWidth: 4, pointRadius: 4
-                        }]
-                    },
-                    options: { 
-                        responsive: true, 
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } }, 
-                        scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } 
-                    }
-                });
+            setChartData({ 
+                labels, 
+                costPoints, 
+                counts: { 
+                    Present: presentCount, 
+                    Closed: closedCount, 
+                    Other: Math.max(0, otherCount) 
+                } 
+            });
+            
+            lastLogSignatureRef.current = currentSignature;
+            isFirstRunRef.current = false;
+        }
+    }, [logs, adminData.length]); // Only depend on logs and adminData length, not the whole object
 
-                // Status Counts for Doughnut
-                const counts = {
-                    Present: adminData.filter(d => d.adminStatus === 'Present').length,
-                    Closed: adminData.filter(d => d.adminStatus === 'Closed').length,
-                    Other: adminData.filter(d => d.adminStatus !== 'Present' && d.adminStatus !== 'Closed').length
-                };
+    // Update charts when chartData changes
+    useEffect(() => {
+        if (!lineRef.current || !doughRef.current) return;
+        
+        if (charts.current.line) charts.current.line.destroy();
+        if (charts.current.dough) charts.current.dough.destroy();
 
-                charts.current.dough = new Chart(doughRef.current, {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['On-Duty', 'Shift Closed', 'Others'],
-                        datasets: [{
-                            data: [counts.Present, counts.Closed, counts.Other],
-                            backgroundColor: ['#10b981', '#f37021', '#cbd5e1'],
-                            borderWidth: 0
-                        }]
-                    },
-                    options: { cutout: '75%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 20, font: { weight: '800' } } } } }
-                });
+        charts.current.line = new Chart(lineRef.current, {
+            type: 'line',
+            data: {
+                labels: chartData.labels,
+                datasets: [{
+                    data: chartData.costPoints,
+                    borderColor: '#f37021',
+                    backgroundColor: 'rgba(243, 112, 33, 0.05)',
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 4,
+                    pointRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
 
-            }, [logs, adminData, scope]);
+        charts.current.dough = new Chart(doughRef.current, {
+            type: 'doughnut',
+            data: {
+                labels: ['On-Duty', 'Shift Closed', 'Others'],
+                datasets: [{
+                    data: [chartData.counts.Present, chartData.counts.Closed, chartData.counts.Other],
+                    backgroundColor: ['#10b981', '#f37021', '#cbd5e1'],
+                    borderWidth: 0
+                }]
+            },
+            options: { 
+                cutout: '75%', 
+                plugins: { 
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { boxWidth: 12, padding: 20, font: { weight: '800' } } 
+                    } 
+                } 
+            }
+        });
 
-            return (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-                    <div className="bg-white p-8 rounded-[3rem] border shadow-sm h-80 flex flex-col">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 uppercase">Expenditure Trend (Last 7 Days)</p>
-                        <div className="flex-1"><canvas ref={lineRef}></canvas></div>
-                    </div>
-                    <div className="bg-white p-8 rounded-[3rem] border shadow-sm flex flex-col items-center h-80">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 self-start uppercase">Staffing Status Breakdown</p>
-                        <div className="w-full h-full max-h-[220px] flex justify-center"><canvas ref={doughRef}></canvas></div>
-                    </div>
-                </div>
-            );
-        };
+    }, [chartData]);
+
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+            <div className="bg-white p-8 rounded-[3rem] border shadow-sm h-80 flex flex-col">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 uppercase">Expenditure Trend (Last 7 Days)</p>
+                <div className="flex-1"><canvas ref={lineRef}></canvas></div>
+            </div>
+            <div className="bg-white p-8 rounded-[3rem] border shadow-sm flex flex-col items-center h-80">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 self-start uppercase">Staffing Status Breakdown</p>
+                <div className="w-full h-full max-h-[220px] flex justify-center"><canvas ref={doughRef}></canvas></div>
+            </div>
+        </div>
+    );
+};
 
         // --- MAIN APP COMPONENT ---
         const App = () => {
@@ -354,15 +389,22 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             const [isStaffModal, setIsStaffModal] = useState(false);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
-            // Dashboard Engine Loop
-            useEffect(() => { 
-                refreshData();
-                const timer = setInterval(() => {
-                    setCurrentTime(Date.now());
-                    if (view === 'admin' && adminTab === 'overview') refreshData();
-                }, 2000);
-                return () => clearInterval(timer);
-            }, [view, adminTab]);
+            // Real-time clock (1 second interval for smooth UI)
+useEffect(() => {
+  const timer = setInterval(() => {
+    setCurrentTime(Date.now());
+  }, 1000);
+  return () => clearInterval(timer);
+}, []);
+
+// Dashboard Engine Loop
+useEffect(() => { 
+  refreshData();
+  const timer = setInterval(() => {
+    if (view === 'admin' && adminTab === 'overview') refreshData();
+  }, 3000);
+  return () => clearInterval(timer);
+}, [view, adminTab]);
 
             // --- AUTO-CHECKOUT ENGINE ---
             useEffect(() => {
@@ -415,28 +457,27 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             };
 
             const handleRegisterFinger = async (user) => {
-                try {
-                    playSfx('pop');
-                    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
-                    const createOptions = {
-                        publicKey: {
-                            challenge,
-                            rp: { name: "OvenX System" },
-                            user: { id: strToBuffer(user.id), name: user.display_id, displayName: user.full_name },
-                            pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-                            authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "required", userVerification: "required" },
-                            timeout: 60000
-                        }
-                    };
-                    const credential = await navigator.credentials.create(createOptions);
-                    const credIdB64 = bufferToBase64(credential.rawId);
-                    await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
-                    alert("Success! Fingerprint linked to " + user.full_name);
-                    playSfx('success');
-                    refreshData();
-                } catch (err) { alert("Failed: " + err.message); }
-            };
-
+  try {
+    playSfx('pop');
+    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+    const createOptions = {
+      publicKey: {
+        challenge,
+        rp: { name: "OvenX System" },
+        user: { id: strToBuffer(user.id), name: user.display_id, displayName: user.full_name },
+        pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+        authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "required", userVerification: "required" },
+        timeout: 60000
+      }
+    };
+    const credential = await navigator.credentials.create(createOptions);
+    const credIdB64 = bufferToBase64(credential.rawId);
+    await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
+    alert("Success! Fingerprint linked to " + user.full_name);
+    playSfx('success');
+    refreshData(); // ← ADD THIS LINE
+  } catch (err) { alert("Failed: " + err.message); }
+};
             const handleLogin = async () => {
                 playSfx('pop');
                 const { data: user } = await sb.from('profiles').select('*').eq('display_id', pin).single();
@@ -552,11 +593,123 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
             const exportExcel = () => {
     playSfx('pop');
-    
-    // Get current date for filename
     const today = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
     
-    let html = `
+    // Determine date range
+    let startPoint, endPoint, rangeLabel;
+    const now = new Date();
+    
+    if (dateMode === 'custom' && startDate && endDate) {
+        startPoint = new Date(startDate);
+        startPoint.setHours(0, 0, 0, 0);
+        endPoint = new Date(endDate);
+        endPoint.setHours(23, 59, 59, 999);
+        rangeLabel = `${startDate}_to_${endDate}`;
+    } else {
+        // Rolling mode logic
+        const curH = now.getHours();
+        startPoint = new Date(now);
+        
+        if (scope === 'day') {
+            if (curH < 10) startPoint.setDate(now.getDate() - 1);
+            startPoint.setHours(10, 0, 0, 0);
+            endPoint = new Date(startPoint);
+            endPoint.setDate(endPoint.getDate() + 1);
+            rangeLabel = 'Day_View';
+        } else if (scope === 'week') {
+            startPoint.setDate(now.getDate() - 7);
+            startPoint.setHours(0, 0, 0, 0);
+            endPoint = now;
+            rangeLabel = 'Week_View';
+        } else {
+            startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+            endPoint = now;
+            rangeLabel = 'Month_View';
+        }
+    }
+
+    // Filter ALL logs within date range (not just latest)
+    const rangeLogs = logs.filter(l => {
+        const checkIn = new Date(l.check_in);
+        return checkIn >= startPoint && checkIn <= endPoint;
+    });
+
+    // Build worksheets array
+    let worksheets = [];
+    
+    // 1. SUMMARY WORKSHEET (Aggregated by staff)
+    let summaryRows = profiles.map(profile => {
+        const staffLogs = rangeLogs.filter(l => l.employee_id === profile.id);
+        let totalSecs = 0;
+        let totalSalary = 0;
+        let shiftsCount = staffLogs.length;
+        
+        staffLogs.forEach(l => {
+            const start = new Date(l.check_in).getTime();
+            const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
+            const secs = Math.max(0, Math.floor((end - start) / 1000));
+            totalSecs += secs;
+            totalSalary += (secs / 36000) * profile.daily_rate;
+        });
+        
+        const isActive = staffLogs.some(l => !l.check_out);
+        const lastLog = staffLogs[0];
+        
+        let status = "Offline";
+        if (isActive) status = "Present";
+        else if (shiftsCount > 0) status = "Closed";
+        else if (dateMode === 'custom') status = "No Data";
+        else if (scope === 'day' && (now.getHours() >= 10 || now.getHours() < 2)) status = "Pending";
+        else status = "Holiday";
+        
+        return {
+            name: profile.full_name,
+            id: profile.display_id,
+            status: status,
+            shifts: shiftsCount,
+            hours: (totalSecs / 3600).toFixed(2),
+            salary: totalSalary.toFixed(2),
+            isActive: isActive
+        };
+    });
+
+    // Generate Summary HTML Table
+    let summaryHtml = generateSummaryTable(summaryRows, rangeLabel, startPoint, endPoint);
+    worksheets.push({ name: 'Summary', html: summaryHtml });
+
+    // 2. DAILY WORKSHEETS (Only for custom date ranges with multiple days)
+    if (dateMode === 'custom') {
+        const dayCount = Math.ceil((endPoint - startPoint) / (1000 * 60 * 60 * 24)) + 1;
+        
+        if (dayCount <= 31) { // Only create daily tabs for reasonable ranges
+            for (let d = 0; d < dayCount; d++) {
+                const dayStart = new Date(startPoint);
+                dayStart.setDate(dayStart.getDate() + d);
+                dayStart.setHours(0, 0, 0, 0);
+                
+                const dayEnd = new Date(dayStart);
+                dayEnd.setHours(23, 59, 59, 999);
+                
+                const dayLogs = logs.filter(l => {
+                    const checkIn = new Date(l.check_in);
+                    return checkIn >= dayStart && checkIn <= dayEnd;
+                });
+                
+                if (dayLogs.length > 0) {
+                    const dayName = dayStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                    const dayHtml = generateDailyTable(dayLogs, dayName, dayStart, profiles);
+                    worksheets.push({ name: dayName, html: dayHtml });
+                }
+            }
+        }
+    } else {
+        // For rolling views, add detailed all-time data
+        const allTimeHtml = generateAllTimeTable(rangeLogs, scope, profiles);
+        worksheets.push({ name: 'All_Shifts', html: allTimeHtml });
+    }
+
+    // Combine all worksheets into final HTML
+    let finalHtml = `
         <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
         <head>
             <meta charset="UTF-8">
@@ -578,100 +731,152 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             </style>
         </head>
         <body>
-            <div class="header">OvenX Intelligence - Detailed ${scope.toUpperCase()} Report</div>
-            <div class="subheader">Generated on: ${new Date().toLocaleString()} | Period: ${scope.toUpperCase()}</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Employee Name</th>
-                        <th>Staff ID</th>
-                        <th>Status</th>
-                        <th>Holiday</th>
-                        <th>Check-In Time</th>
-                        <th>Check-Out Time</th>
-                        <th>Uniform</th>
-                        <th>Hours Worked</th>
-                        <th>Money Earned (PKR)</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-
-    adminProcessedData.forEach(r => {
-        // Determine row color based on status
-        let rowClass = 'offline';
-        if (r.adminStatus === 'Present') rowClass = 'present';
-        else if (r.adminStatus === 'Closed') rowClass = 'closed';
-        else if (r.adminStatus === 'Pending') rowClass = 'pending';
-        else if (r.adminStatus === 'Holiday') rowClass = 'holiday';
-
-        // Calculate hours and minutes
-        const totalHours = Math.floor(r.totalSecs / 3600);
-        const totalMinutes = Math.floor((r.totalSecs % 3600) / 60);
-        const timeDisplay = r.totalSecs > 0 ? `${totalHours}h ${totalMinutes}m` : '0h 0m';
-
-        // Get check-in and check-out times
-        const activeShift = logs.find(l => l.employee_id === r.id && !l.check_out);
-        const lastShift = logs.find(l => l.employee_id === r.id);
-        
-        let checkInTime = '-';
-        let checkOutTime = '-';
-        let uniformStatus = 'N/A';
-        
-        if (activeShift) {
-            checkInTime = new Date(activeShift.check_in).toLocaleString();
-            checkOutTime = 'LIVE';
-            uniformStatus = activeShift.uniform ? 'ON' : 'OFF';
-        } else if (lastShift) {
-            checkInTime = new Date(lastShift.check_in).toLocaleString();
-            checkOutTime = lastShift.check_out ? new Date(lastShift.check_out).toLocaleString() : '-';
-            uniformStatus = lastShift.uniform ? 'ON' : 'OFF';
-        }
-
-        // Holiday status
-        const holidayStatus = r.adminStatus === 'Holiday' ? 'YES' : 'NO';
-
-        html += `
-            <tr class="${rowClass}">
-                <td class="text-left font-bold">${r.full_name}</td>
-                <td class="text-center font-mono">${r.display_id}</td>
-                <td class="text-center font-bold">${r.adminStatus}</td>
-                <td class="text-center">${holidayStatus}</td>
-                <td class="text-center">${checkInTime}</td>
-                <td class="text-center">${checkOutTime}</td>
-                <td class="text-center">${uniformStatus}</td>
-                <td class="text-center">${timeDisplay}</td>
-                <td class="text-right money">Rs. ${parseFloat(r.salary).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            </tr>
-        `;
-    });
-
-    // Add summary row
-    const totalMoney = adminProcessedData.reduce((a,b) => a + parseFloat(b.salary), 0);
-    const totalHours = adminProcessedData.reduce((a,b) => a + b.totalSecs, 0);
-    const totalH = Math.floor(totalHours / 3600);
-    const totalM = Math.floor((totalHours % 3600) / 60);
-
-    html += `
-                </tbody>
-                <tfoot>
-                    <tr style="background-color: #8b0000; color: white; font-weight: bold;">
-                        <td colspan="7" class="text-right">TOTALS:</td>
-                        <td class="text-center">${totalH}h ${totalM}m</td>
-                        <td class="text-right">Rs. ${totalMoney.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                    </tr>
-                </tfoot>
-            </table>
+            ${worksheets.map((ws, idx) => `
+                <h2 style="color:#8b0000; font-size:20px; margin-top:30px;">${ws.name}</h2>
+                ${ws.html}
+                ${idx < worksheets.length - 1 ? '<div style="page-break-after:always;"></div>' : ''}
+            `).join('')}
         </body>
         </html>
     `;
 
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const blob = new Blob([finalHtml], { type: 'application/vnd.ms-excel' });
     const a = document.createElement('a'); 
     a.href = URL.createObjectURL(blob); 
-    a.download = `OvenX_Detailed_${scope}_${today}.xls`; 
+    a.download = `OvenX_${rangeLabel}_${today}.xls`; 
     a.click();
     playSfx('success');
+};
+
+// Helper function for Summary table
+const generateSummaryTable = (rows, rangeLabel, start, end) => {
+    let totalMoney = rows.reduce((a, b) => a + parseFloat(b.salary), 0);
+    let totalHours = rows.reduce((a, b) => a + parseFloat(b.hours), 0);
+    
+    return `
+        <div class="header">OvenX Intelligence - ${rangeLabel} Summary</div>
+        <div class="subheader">Period: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Employee Name</th>
+                    <th>Staff ID</th>
+                    <th>Status</th>
+                    <th>Total Shifts</th>
+                    <th>Total Hours</th>
+                    <th>Total Earnings (PKR)</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map(r => {
+                    let rowClass = r.status === 'Present' ? 'present' : 
+                                  r.status === 'Closed' ? 'closed' : 
+                                  r.status === 'Pending' ? 'pending' : 
+                                  r.status === 'Holiday' ? 'holiday' : 'offline';
+                    return `
+                        <tr class="${rowClass}">
+                            <td class="text-left font-bold">${r.name}</td>
+                            <td class="text-center font-mono">${r.id}</td>
+                            <td class="text-center font-bold">${r.status}</td>
+                            <td class="text-center">${r.shifts}</td>
+                            <td class="text-center">${r.hours}h</td>
+                            <td class="text-right money">Rs. ${parseFloat(r.salary).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+            <tfoot>
+                <tr style="background-color: #8b0000; color: white; font-weight: bold;">
+                    <td colspan="4" class="text-right">TOTALS:</td>
+                    <td class="text-center">${totalHours.toFixed(2)}h</td>
+                    <td class="text-right">Rs. ${totalMoney.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                </tr>
+            </tfoot>
+        </table>
+    `;
+};
+
+// Helper function for Daily detailed table
+const generateDailyTable = (dayLogs, dayName, dayDate, profiles) => {
+    return `
+        <div class="header">Daily Detail - ${dayName}</div>
+        <div class="subheader">${dayDate.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Employee</th>
+                    <th>Check-In</th>
+                    <th>Check-Out</th>
+                    <th>Duration</th>
+                    <th>Uniform</th>
+                    <th>Earnings (PKR)</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${dayLogs.map(log => {
+                    const profile = profiles.find(p => p.id === log.employee_id);
+                    const start = new Date(log.check_in);
+                    const end = log.check_out ? new Date(log.check_out) : null;
+                    const duration = end ? ((end - start) / 3600000).toFixed(2) : 'LIVE';
+                    const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : '0.00';
+                    
+                    return `
+                        <tr>
+                            <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
+                            <td class="text-center">${start.toLocaleTimeString()}</td>
+                            <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'LIVE'}</td>
+                            <td class="text-center">${duration}h</td>
+                            <td class="text-center">${log.uniform ? 'ON' : 'OFF'}</td>
+                            <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+};
+
+// Helper function for All-Time/Rolling detailed table
+const generateAllTimeTable = (logs, scope, profiles) => {
+    return `
+        <div class="header">Complete Shift Records - ${scope.toUpperCase()} View</div>
+        <div class="subheader">All individual shifts in selected period</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Employee</th>
+                    <th>Check-In</th>
+                    <th>Check-Out</th>
+                    <th>Hours</th>
+                    <th>Status</th>
+                    <th>Earnings (PKR)</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${logs.map(log => {
+                    const profile = profiles.find(p => p.id === log.employee_id);
+                    const start = new Date(log.check_in);
+                    const end = log.check_out ? new Date(log.check_out) : null;
+                    const hours = end ? ((end - start) / 3600000).toFixed(2) : ((Date.now() - start) / 3600000).toFixed(2);
+                    const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : 
+                        (((Date.now() - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2);
+                    
+                    return `
+                        <tr>
+                            <td class="text-center">${start.toLocaleDateString()}</td>
+                            <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
+                            <td class="text-center">${start.toLocaleTimeString()}</td>
+                            <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'ONGOING'}</td>
+                            <td class="text-center">${hours}h</td>
+                            <td class="text-center">${end ? 'CLOSED' : '<span style="color:#10b981;">LIVE</span>'}</td>
+                            <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
 };
 
             const filteredArchives = useMemo(() => {
