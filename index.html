@@ -208,6 +208,32 @@
                     <line x1="10" x2="10" y1="11" y2="17"/>
                     <line x1="14" x2="14" y1="11" y2="17"/>
                 </svg>
+            ),
+            // NEW: Alert icon for absentees
+            alert: ({ className = "w-5 h-5" }) => (
+                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+            ),
+            // NEW: User X icon for absentees
+            userX: ({ className = "w-5 h-5" }) => (
+                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="8.5" cy="7" r="4"/>
+                    <line x1="18" y1="8" x2="23" y2="13"/>
+                    <line x1="23" y1="8" x2="18" y2="13"/>
+                </svg>
+            ),
+            // NEW: Calendar icon
+            calendar: ({ className = "w-5 h-5" }) => (
+                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
             )
         };
 
@@ -373,8 +399,8 @@
             const [adminTab, setAdminTab] = useState('overview');
             const [scope, setScope] = useState('day');
             const [dateMode, setDateMode] = useState('rolling');
-const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+            const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+            const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             const [pin, setPin] = useState('');
             const [employee, setEmployee] = useState(null);
             const [search, setSearch] = useState('');
@@ -390,21 +416,21 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
             const [newStaff, setNewStaff] = useState({ name: '', id: '', rate: '', shift_start: '', shift_end: '' });
 
             // Real-time clock (1 second interval for smooth UI)
-useEffect(() => {
-  const timer = setInterval(() => {
-    setCurrentTime(Date.now());
-  }, 1000);
-  return () => clearInterval(timer);
-}, []);
+            useEffect(() => {
+              const timer = setInterval(() => {
+                setCurrentTime(Date.now());
+              }, 1000);
+              return () => clearInterval(timer);
+            }, []);
 
-// Dashboard Engine Loop
-useEffect(() => { 
-  refreshData();
-  const timer = setInterval(() => {
-    if (view === 'admin' && adminTab === 'overview') refreshData();
-  }, 3000);
-  return () => clearInterval(timer);
-}, [view, adminTab]);
+            // Dashboard Engine Loop
+            useEffect(() => { 
+              refreshData();
+              const timer = setInterval(() => {
+                if (view === 'admin' && adminTab === 'overview') refreshData();
+              }, 3000);
+              return () => clearInterval(timer);
+            }, [view, adminTab]);
 
             // --- AUTO-CHECKOUT ENGINE ---
             useEffect(() => {
@@ -457,27 +483,28 @@ useEffect(() => {
             };
 
             const handleRegisterFinger = async (user) => {
-  try {
-    playSfx('pop');
-    const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
-    const createOptions = {
-      publicKey: {
-        challenge,
-        rp: { name: "OvenX System" },
-        user: { id: strToBuffer(user.id), name: user.display_id, displayName: user.full_name },
-        pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-        authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "required", userVerification: "required" },
-        timeout: 60000
-      }
-    };
-    const credential = await navigator.credentials.create(createOptions);
-    const credIdB64 = bufferToBase64(credential.rawId);
-    await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
-    alert("Success! Fingerprint linked to " + user.full_name);
-    playSfx('success');
-    refreshData(); // ← ADD THIS LINE
-  } catch (err) { alert("Failed: " + err.message); }
-};
+              try {
+                playSfx('pop');
+                const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
+                const createOptions = {
+                  publicKey: {
+                    challenge,
+                    rp: { name: "OvenX System" },
+                    user: { id: strToBuffer(user.id), name: user.display_id, displayName: user.full_name },
+                    pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                    authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "required", userVerification: "required" },
+                    timeout: 60000
+                  }
+                };
+                const credential = await navigator.credentials.create(createOptions);
+                const credIdB64 = bufferToBase64(credential.rawId);
+                await sb.from('profiles').update({ fingerprint_id: credIdB64 }).eq('id', user.id);
+                alert("Success! Fingerprint linked to " + user.full_name);
+                playSfx('success');
+                refreshData(); // ← ADD THIS LINE
+              } catch (err) { alert("Failed: " + err.message); }
+            };
+            
             const handleLogin = async () => {
                 playSfx('pop');
                 const { data: user } = await sb.from('profiles').select('*').eq('display_id', pin).single();
@@ -516,368 +543,477 @@ useEffect(() => {
 
             // --- DATA ENGINES ---
             const adminProcessedData = useMemo(() => {
-    let startPoint, endPoint;
-    const now = new Date(currentTime);
-    
-    if (dateMode === 'custom' && startDate && endDate) {
-        // Custom date range: Start of start date to end of end date
-        startPoint = new Date(startDate);
-        startPoint.setHours(0, 0, 0, 0);
-        endPoint = new Date(endDate);
-        endPoint.setHours(23, 59, 59, 999);
-    } else {
-        // Rolling mode (existing logic)
-        const curH = now.getHours();
-        startPoint = new Date(now);
-        
-        if (scope === 'day') {
-            if (curH < 10) startPoint.setDate(now.getDate() - 1);
-            startPoint.setHours(10, 0, 0, 0);
-            endPoint = new Date(startPoint);
-            endPoint.setDate(endPoint.getDate() + 1);
-        } else if (scope === 'week') {
-            startPoint.setDate(now.getDate() - 7);
-            startPoint.setHours(0, 0, 0, 0);
-            endPoint = now;
-        } else if (scope === 'month') {
-            startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            endPoint = now;
-        }
-    }
+                let startPoint, endPoint;
+                const now = new Date(currentTime);
+                
+                if (dateMode === 'custom' && startDate && endDate) {
+                    // Custom date range: Start of start date to end of end date
+                    startPoint = new Date(startDate);
+                    startPoint.setHours(0, 0, 0, 0);
+                    endPoint = new Date(endDate);
+                    endPoint.setHours(23, 59, 59, 999);
+                } else if (dateMode === 'absentees') {
+                    // For absentees: Define the shift window (10 AM to 2 AM next day)
+                    const checkDate = new Date(startDate);
+                    const today = new Date(currentTime);
+                    const isToday = checkDate.toDateString() === today.toDateString();
+                    
+                    // Start of shift day at 10 AM
+                    startPoint = new Date(checkDate);
+                    startPoint.setHours(10, 0, 0, 0);
+                    
+                    // End of shift window at 2 AM next day
+                    endPoint = new Date(checkDate);
+                    endPoint.setDate(endPoint.getDate() + 1);
+                    endPoint.setHours(2, 0, 0, 0);
+                } else {
+                    // Rolling mode (existing logic)
+                    const curH = now.getHours();
+                    startPoint = new Date(now);
+                    
+                    if (scope === 'day') {
+                        if (curH < 10) startPoint.setDate(now.getDate() - 1);
+                        startPoint.setHours(10, 0, 0, 0);
+                        endPoint = new Date(startPoint);
+                        endPoint.setDate(endPoint.getDate() + 1);
+                    } else if (scope === 'week') {
+                        startPoint.setDate(now.getDate() - 7);
+                        startPoint.setHours(0, 0, 0, 0);
+                        endPoint = now;
+                    } else if (scope === 'month') {
+                        startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+                        endPoint = now;
+                    }
+                }
 
-    return profiles.map(profile => {
-        const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
-        
-        // Filter logs within the selected date range
-        const scopeLogs = logs.filter(l => {
-            const checkIn = new Date(l.check_in);
-            return l.employee_id === profile.id && checkIn >= startPoint && checkIn <= endPoint;
-        });
-        
-        let scopeSecs = 0;
-        scopeLogs.forEach(l => {
-            const start = new Date(l.check_in).getTime();
-            const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
-            // Cap end time at the range end if currently working
-            const cappedEnd = end > endPoint.getTime() ? endPoint.getTime() : end;
-            scopeSecs += Math.max(0, Math.floor((cappedEnd - start) / 1000));
-        });
+                return profiles.map(profile => {
+                    const activeShift = logs.find(l => l.employee_id === profile.id && !l.check_out);
+                    
+                    // Filter logs within the selected date range
+                    const scopeLogs = logs.filter(l => {
+                        const checkIn = new Date(l.check_in);
+                        return l.employee_id === profile.id && checkIn >= startPoint && checkIn <= endPoint;
+                    });
+                    
+                    let scopeSecs = 0;
+                    scopeLogs.forEach(l => {
+                        const start = new Date(l.check_in).getTime();
+                        const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
+                        // Cap end time at the range end if currently working
+                        const cappedEnd = end > endPoint.getTime() ? endPoint.getTime() : end;
+                        scopeSecs += Math.max(0, Math.floor((cappedEnd - start) / 1000));
+                    });
 
-        const salary = ((scopeSecs / 36000) * profile.daily_rate).toFixed(2);
-        const lastShift = scopeLogs[0];
+                    const salary = ((scopeSecs / 36000) * profile.daily_rate).toFixed(2);
+                    const lastShift = scopeLogs[0];
 
-        let status = "Offline";
-        if (activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint) {
-            status = "Present";
-        } else if (scopeLogs.length > 0) {
-            status = "Closed";
-        } else if (dateMode === 'custom') {
-            status = "No Data";
-        } else if (scope === 'day' && (new Date().getHours() >= 10 || new Date().getHours() < 2)) {
-            status = "Pending";
-        } else {
-            status = "Holiday";
-        }
+                    let status = "Offline";
+                    if (activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint) {
+                        status = "Present";
+                    } else if (scopeLogs.length > 0) {
+                        status = "Closed";
+                    } else if (dateMode === 'custom') {
+                        status = "No Data";
+                    } else if (scope === 'day' && (new Date().getHours() >= 10 || new Date().getHours() < 2)) {
+                        status = "Pending";
+                    } else {
+                        status = "Holiday";
+                    }
 
-        return { 
-            ...profile, 
-            totalSecs: scopeSecs, 
-            salary, 
-            isActive: !!(activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint), 
-            activeShiftId: activeShift?.id || lastShift?.id, 
-            uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : true),
-            adminStatus: status
-        };
-    });
-}, [profiles, logs, currentTime, scope, dateMode, startDate, endDate]);
+                    return { 
+                        ...profile, 
+                        totalSecs: scopeSecs, 
+                        salary, 
+                        isActive: !!(activeShift && new Date(activeShift.check_in) >= startPoint && new Date(activeShift.check_in) <= endPoint), 
+                        activeShiftId: activeShift?.id || lastShift?.id, 
+                        uniform: activeShift ? activeShift.uniform : (lastShift ? lastShift.uniform : true),
+                        adminStatus: status,
+                        // Add date range info for absentee calculation
+                        dateRange: { start: startPoint, end: endPoint },
+                        // Track if they checked in during this period
+                        hasCheckedIn: scopeLogs.length > 0
+                    };
+                });
+            }, [profiles, logs, currentTime, scope, dateMode, startDate, endDate]);
+
+            // FIXED: Calculate absentees with time-aware logic
+            const absenteesData = useMemo(() => {
+                if (dateMode !== 'absentees') return [];
+                
+                const checkDate = new Date(startDate);
+                const today = new Date(currentTime);
+                const isToday = checkDate.toDateString() === today.toDateString();
+                const currentHour = today.getHours();
+                
+                // Define shift window end (2 AM next day)
+                const shiftEnd = new Date(checkDate);
+                shiftEnd.setDate(shiftEnd.getDate() + 1);
+                shiftEnd.setHours(2, 0, 0, 0);
+                
+                // Only show absentees if:
+                // 1. It's a past date (not today), OR
+                // 2. It's today AND current time is after 2 AM (shift window closed)
+                const canShowAbsentees = !isToday || (isToday && currentHour >= 2);
+                
+                if (!canShowAbsentees) {
+                    // Return empty if shift window hasn't closed yet for today
+                    return [];
+                }
+                
+                return adminProcessedData.filter(staff => {
+                    // Absent if no check-in during the 10 AM - 2 AM window
+                    return !staff.hasCheckedIn;
+                });
+            }, [adminProcessedData, dateMode, startDate, currentTime]);
+
+            // Check if we can show absentees (for UI messaging)
+            const canShowAbsentees = useMemo(() => {
+                if (dateMode !== 'absentees') return true;
+                const checkDate = new Date(startDate);
+                const today = new Date(currentTime);
+                const isToday = checkDate.toDateString() === today.toDateString();
+                const currentHour = today.getHours();
+                return !isToday || (isToday && currentHour >= 2);
+            }, [dateMode, startDate, currentTime]);
 
             const exportExcel = () => {
-    playSfx('pop');
-    const today = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
-    
-    // Determine date range
-    let startPoint, endPoint, rangeLabel;
-    const now = new Date();
-    
-    if (dateMode === 'custom' && startDate && endDate) {
-        startPoint = new Date(startDate);
-        startPoint.setHours(0, 0, 0, 0);
-        endPoint = new Date(endDate);
-        endPoint.setHours(23, 59, 59, 999);
-        rangeLabel = `${startDate}_to_${endDate}`;
-    } else {
-        // Rolling mode logic
-        const curH = now.getHours();
-        startPoint = new Date(now);
-        
-        if (scope === 'day') {
-            if (curH < 10) startPoint.setDate(now.getDate() - 1);
-            startPoint.setHours(10, 0, 0, 0);
-            endPoint = new Date(startPoint);
-            endPoint.setDate(endPoint.getDate() + 1);
-            rangeLabel = 'Day_View';
-        } else if (scope === 'week') {
-            startPoint.setDate(now.getDate() - 7);
-            startPoint.setHours(0, 0, 0, 0);
-            endPoint = now;
-            rangeLabel = 'Week_View';
-        } else {
-            startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            endPoint = now;
-            rangeLabel = 'Month_View';
-        }
-    }
-
-    // Filter ALL logs within date range (not just latest)
-    const rangeLogs = logs.filter(l => {
-        const checkIn = new Date(l.check_in);
-        return checkIn >= startPoint && checkIn <= endPoint;
-    });
-
-    // Build worksheets array
-    let worksheets = [];
-    
-    // 1. SUMMARY WORKSHEET (Aggregated by staff)
-    let summaryRows = profiles.map(profile => {
-        const staffLogs = rangeLogs.filter(l => l.employee_id === profile.id);
-        let totalSecs = 0;
-        let totalSalary = 0;
-        let shiftsCount = staffLogs.length;
-        
-        staffLogs.forEach(l => {
-            const start = new Date(l.check_in).getTime();
-            const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
-            const secs = Math.max(0, Math.floor((end - start) / 1000));
-            totalSecs += secs;
-            totalSalary += (secs / 36000) * profile.daily_rate;
-        });
-        
-        const isActive = staffLogs.some(l => !l.check_out);
-        const lastLog = staffLogs[0];
-        
-        let status = "Offline";
-        if (isActive) status = "Present";
-        else if (shiftsCount > 0) status = "Closed";
-        else if (dateMode === 'custom') status = "No Data";
-        else if (scope === 'day' && (now.getHours() >= 10 || now.getHours() < 2)) status = "Pending";
-        else status = "Holiday";
-        
-        return {
-            name: profile.full_name,
-            id: profile.display_id,
-            status: status,
-            shifts: shiftsCount,
-            hours: (totalSecs / 3600).toFixed(2),
-            salary: totalSalary.toFixed(2),
-            isActive: isActive
-        };
-    });
-
-    // Generate Summary HTML Table
-    let summaryHtml = generateSummaryTable(summaryRows, rangeLabel, startPoint, endPoint);
-    worksheets.push({ name: 'Summary', html: summaryHtml });
-
-    // 2. DAILY WORKSHEETS (Only for custom date ranges with multiple days)
-    if (dateMode === 'custom') {
-        const dayCount = Math.ceil((endPoint - startPoint) / (1000 * 60 * 60 * 24)) + 1;
-        
-        if (dayCount <= 31) { // Only create daily tabs for reasonable ranges
-            for (let d = 0; d < dayCount; d++) {
-                const dayStart = new Date(startPoint);
-                dayStart.setDate(dayStart.getDate() + d);
-                dayStart.setHours(0, 0, 0, 0);
+                playSfx('pop');
+                const today = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
                 
-                const dayEnd = new Date(dayStart);
-                dayEnd.setHours(23, 59, 59, 999);
+                // Determine date range
+                let startPoint, endPoint, rangeLabel;
+                const now = new Date();
                 
-                const dayLogs = logs.filter(l => {
-                    const checkIn = new Date(l.check_in);
-                    return checkIn >= dayStart && checkIn <= dayEnd;
-                });
-                
-                if (dayLogs.length > 0) {
-                    const dayName = dayStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                    const dayHtml = generateDailyTable(dayLogs, dayName, dayStart, profiles);
-                    worksheets.push({ name: dayName, html: dayHtml });
+                if (dateMode === 'custom' && startDate && endDate) {
+                    startPoint = new Date(startDate);
+                    startPoint.setHours(0, 0, 0, 0);
+                    endPoint = new Date(endDate);
+                    endPoint.setHours(23, 59, 59, 999);
+                    rangeLabel = `${startDate}_to_${endDate}`;
+                } else if (dateMode === 'absentees') {
+                    startPoint = new Date(startDate);
+                    startPoint.setHours(10, 0, 0, 0);
+                    endPoint = new Date(startDate);
+                    endPoint.setDate(endPoint.getDate() + 1);
+                    endPoint.setHours(2, 0, 0, 0);
+                    rangeLabel = `ABSENTEES_${startDate}`;
+                } else {
+                    // Rolling mode logic
+                    const curH = now.getHours();
+                    startPoint = new Date(now);
+                    
+                    if (scope === 'day') {
+                        if (curH < 10) startPoint.setDate(now.getDate() - 1);
+                        startPoint.setHours(10, 0, 0, 0);
+                        endPoint = new Date(startPoint);
+                        endPoint.setDate(endPoint.getDate() + 1);
+                        rangeLabel = 'Day_View';
+                    } else if (scope === 'week') {
+                        startPoint.setDate(now.getDate() - 7);
+                        startPoint.setHours(0, 0, 0, 0);
+                        endPoint = now;
+                        rangeLabel = 'Week_View';
+                    } else {
+                        startPoint = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+                        endPoint = now;
+                        rangeLabel = 'Month_View';
+                    }
                 }
-            }
-        }
-    } else {
-        // For rolling views, add detailed all-time data
-        const allTimeHtml = generateAllTimeTable(rangeLogs, scope, profiles);
-        worksheets.push({ name: 'All_Shifts', html: allTimeHtml });
-    }
 
-    // Combine all worksheets into final HTML
-    let finalHtml = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                table { border-collapse: collapse; width: 100%; }
-                th { background: #8b0000; color: white; border: 1px solid #000; padding: 12px; font-weight: bold; font-size: 11px; text-align: center; }
-                td { border: 1px solid #ccc; padding: 10px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; }
-                .text-left { text-align: left; }
-                .text-center { text-align: center; }
-                .text-right { text-align: right; }
-                .header { font-size: 18px; font-weight: bold; text-align: center; color: #8b0000; margin-bottom: 10px; }
-                .subheader { font-size: 12px; text-align: center; color: #666; margin-bottom: 20px; }
-                .money { font-weight: bold; color: #f37021; }
-                .present { background-color: #dcfce7; }
-                .closed { background-color: #e0f2fe; }
-                .pending { background-color: #fef9c3; }
-                .holiday { background-color: #fee2e2; }
-                .offline { background-color: #f3f4f6; }
-            </style>
-        </head>
-        <body>
-            ${worksheets.map((ws, idx) => `
-                <h2 style="color:#8b0000; font-size:20px; margin-top:30px;">${ws.name}</h2>
-                ${ws.html}
-                ${idx < worksheets.length - 1 ? '<div style="page-break-after:always;"></div>' : ''}
-            `).join('')}
-        </body>
-        </html>
-    `;
+                // Filter ALL logs within date range (not just latest)
+                const rangeLogs = logs.filter(l => {
+                    const checkIn = new Date(l.check_in);
+                    return checkIn >= startPoint && checkIn <= endPoint;
+                });
 
-    const blob = new Blob([finalHtml], { type: 'application/vnd.ms-excel' });
-    const a = document.createElement('a'); 
-    a.href = URL.createObjectURL(blob); 
-    a.download = `OvenX_${rangeLabel}_${today}.xls`; 
-    a.click();
-    playSfx('success');
-};
-
-// Helper function for Summary table
-const generateSummaryTable = (rows, rangeLabel, start, end) => {
-    let totalMoney = rows.reduce((a, b) => a + parseFloat(b.salary), 0);
-    let totalHours = rows.reduce((a, b) => a + parseFloat(b.hours), 0);
-    
-    return `
-        <div class="header">OvenX Intelligence - ${rangeLabel} Summary</div>
-        <div class="subheader">Period: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Employee Name</th>
-                    <th>Staff ID</th>
-                    <th>Status</th>
-                    <th>Total Shifts</th>
-                    <th>Total Hours</th>
-                    <th>Total Earnings (PKR)</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows.map(r => {
-                    let rowClass = r.status === 'Present' ? 'present' : 
-                                  r.status === 'Closed' ? 'closed' : 
-                                  r.status === 'Pending' ? 'pending' : 
-                                  r.status === 'Holiday' ? 'holiday' : 'offline';
-                    return `
-                        <tr class="${rowClass}">
-                            <td class="text-left font-bold">${r.name}</td>
-                            <td class="text-center font-mono">${r.id}</td>
-                            <td class="text-center font-bold">${r.status}</td>
-                            <td class="text-center">${r.shifts}</td>
-                            <td class="text-center">${r.hours}h</td>
-                            <td class="text-right money">Rs. ${parseFloat(r.salary).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                        </tr>
-                    `;
-                }).join('')}
-            </tbody>
-            <tfoot>
-                <tr style="background-color: #8b0000; color: white; font-weight: bold;">
-                    <td colspan="4" class="text-right">TOTALS:</td>
-                    <td class="text-center">${totalHours.toFixed(2)}h</td>
-                    <td class="text-right">Rs. ${totalMoney.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                </tr>
-            </tfoot>
-        </table>
-    `;
-};
-
-// Helper function for Daily detailed table
-const generateDailyTable = (dayLogs, dayName, dayDate, profiles) => {
-    return `
-        <div class="header">Daily Detail - ${dayName}</div>
-        <div class="subheader">${dayDate.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Employee</th>
-                    <th>Check-In</th>
-                    <th>Check-Out</th>
-                    <th>Duration</th>
-                    <th>Uniform</th>
-                    <th>Earnings (PKR)</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${dayLogs.map(log => {
-                    const profile = profiles.find(p => p.id === log.employee_id);
-                    const start = new Date(log.check_in);
-                    const end = log.check_out ? new Date(log.check_out) : null;
-                    const duration = end ? ((end - start) / 3600000).toFixed(2) : 'LIVE';
-                    const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : '0.00';
+                // Build worksheets array
+                let worksheets = [];
+                
+                // 1. SUMMARY WORKSHEET (Aggregated by staff)
+                let summaryRows = profiles.map(profile => {
+                    const staffLogs = rangeLogs.filter(l => l.employee_id === profile.id);
+                    let totalSecs = 0;
+                    let totalSalary = 0;
+                    let shiftsCount = staffLogs.length;
                     
-                    return `
-                        <tr>
-                            <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
-                            <td class="text-center">${start.toLocaleTimeString()}</td>
-                            <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'LIVE'}</td>
-                            <td class="text-center">${duration}h</td>
-                            <td class="text-center">${log.uniform ? 'ON' : 'OFF'}</td>
-                            <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                        </tr>
-                    `;
-                }).join('')}
-            </tbody>
-        </table>
-    `;
-};
-
-// Helper function for All-Time/Rolling detailed table
-const generateAllTimeTable = (logs, scope, profiles) => {
-    return `
-        <div class="header">Complete Shift Records - ${scope.toUpperCase()} View</div>
-        <div class="subheader">All individual shifts in selected period</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Employee</th>
-                    <th>Check-In</th>
-                    <th>Check-Out</th>
-                    <th>Hours</th>
-                    <th>Status</th>
-                    <th>Earnings (PKR)</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${logs.map(log => {
-                    const profile = profiles.find(p => p.id === log.employee_id);
-                    const start = new Date(log.check_in);
-                    const end = log.check_out ? new Date(log.check_out) : null;
-                    const hours = end ? ((end - start) / 3600000).toFixed(2) : ((Date.now() - start) / 3600000).toFixed(2);
-                    const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : 
-                        (((Date.now() - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2);
+                    staffLogs.forEach(l => {
+                        const start = new Date(l.check_in).getTime();
+                        const end = l.check_out ? new Date(l.check_out).getTime() : currentTime;
+                        const secs = Math.max(0, Math.floor((end - start) / 1000));
+                        totalSecs += secs;
+                        totalSalary += (secs / 36000) * profile.daily_rate;
+                    });
                     
-                    return `
-                        <tr>
-                            <td class="text-center">${start.toLocaleDateString()}</td>
-                            <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
-                            <td class="text-center">${start.toLocaleTimeString()}</td>
-                            <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'ONGOING'}</td>
-                            <td class="text-center">${hours}h</td>
-                            <td class="text-center">${end ? 'CLOSED' : '<span style="color:#10b981;">LIVE</span>'}</td>
-                            <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                        </tr>
-                    `;
-                }).join('')}
-            </tbody>
-        </table>
-    `;
-};
+                    const isActive = staffLogs.some(l => !l.check_out);
+                    const lastLog = staffLogs[0];
+                    
+                    let status = "Offline";
+                    if (isActive) status = "Present";
+                    else if (shiftsCount > 0) status = "Closed";
+                    else if (dateMode === 'custom') status = "No Data";
+                    else if (scope === 'day' && (now.getHours() >= 10 || now.getHours() < 2)) status = "Pending";
+                    else status = "Holiday";
+                    
+                    return {
+                        name: profile.full_name,
+                        id: profile.display_id,
+                        status: status,
+                        shifts: shiftsCount,
+                        hours: (totalSecs / 3600).toFixed(2),
+                        salary: totalSalary.toFixed(2),
+                        isActive: isActive
+                    };
+                });
+
+                // Generate Summary HTML Table
+                let summaryHtml = generateSummaryTable(summaryRows, rangeLabel, startPoint, endPoint);
+                worksheets.push({ name: 'Summary', html: summaryHtml });
+
+                // NEW: ABSENTEES WORKSHEET
+                if (absenteesData.length > 0) {
+                    let absenteesHtml = generateAbsenteesTable(absenteesData, rangeLabel, startPoint, endPoint);
+                    worksheets.push({ name: 'ABSENTEES', html: absenteesHtml });
+                }
+
+                // 2. DAILY WORKSHEETS (Only for custom date ranges with multiple days)
+                if (dateMode === 'custom') {
+                    const dayCount = Math.ceil((endPoint - startPoint) / (1000 * 60 * 60 * 24)) + 1;
+                    
+                    if (dayCount <= 31) { // Only create daily tabs for reasonable ranges
+                        for (let d = 0; d < dayCount; d++) {
+                            const dayStart = new Date(startPoint);
+                            dayStart.setDate(dayStart.getDate() + d);
+                            dayStart.setHours(0, 0, 0, 0);
+                            
+                            const dayEnd = new Date(dayStart);
+                            dayEnd.setHours(23, 59, 59, 999);
+                            
+                            const dayLogs = logs.filter(l => {
+                                const checkIn = new Date(l.check_in);
+                                return checkIn >= dayStart && checkIn <= dayEnd;
+                            });
+                            
+                            if (dayLogs.length > 0) {
+                                const dayName = dayStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                                const dayHtml = generateDailyTable(dayLogs, dayName, dayStart, profiles);
+                                worksheets.push({ name: dayName, html: dayHtml });
+                            }
+                        }
+                    }
+                } else {
+                    // For rolling views, add detailed all-time data
+                    const allTimeHtml = generateAllTimeTable(rangeLogs, scope, profiles);
+                    worksheets.push({ name: 'All_Shifts', html: allTimeHtml });
+                }
+
+                // Combine all worksheets into final HTML
+                let finalHtml = `
+                    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                    <head>
+                        <meta charset="UTF-8">
+                        <style>
+                            table { border-collapse: collapse; width: 100%; }
+                            th { background: #8b0000; color: white; border: 1px solid #000; padding: 12px; font-weight: bold; font-size: 11px; text-align: center; }
+                            td { border: 1px solid #ccc; padding: 10px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; }
+                            .text-left { text-align: left; }
+                            .text-center { text-align: center; }
+                            .text-right { text-align: right; }
+                            .header { font-size: 18px; font-weight: bold; text-align: center; color: #8b0000; margin-bottom: 10px; }
+                            .subheader { font-size: 12px; text-align: center; color: #666; margin-bottom: 20px; }
+                            .money { font-weight: bold; color: #f37021; }
+                            .present { background-color: #dcfce7; }
+                            .closed { background-color: #e0f2fe; }
+                            .pending { background-color: #fef9c3; }
+                            .holiday { background-color: #fee2e2; }
+                            .offline { background-color: #f3f4f6; }
+                            .absent { background-color: #fee2e2; color: #991b1b; }
+                        </style>
+                    </head>
+                    <body>
+                        ${worksheets.map((ws, idx) => `
+                            <h2 style="color:#8b0000; font-size:20px; margin-top:30px;">${ws.name}</h2>
+                            ${ws.html}
+                            ${idx < worksheets.length - 1 ? '<div style="page-break-after:always;"></div>' : ''}
+                        `).join('')}
+                    </body>
+                    </html>
+                `;
+
+                const blob = new Blob([finalHtml], { type: 'application/vnd.ms-excel' });
+                const a = document.createElement('a'); 
+                a.href = URL.createObjectURL(blob); 
+                a.download = `OvenX_${rangeLabel}_${today}.xls`; 
+                a.click();
+                playSfx('success');
+            };
+
+            // Helper function for Summary table
+            const generateSummaryTable = (rows, rangeLabel, start, end) => {
+                let totalMoney = rows.reduce((a, b) => a + parseFloat(b.salary), 0);
+                let totalHours = rows.reduce((a, b) => a + parseFloat(b.hours), 0);
+                
+                return `
+                    <div class="header">OvenX Intelligence - ${rangeLabel} Summary</div>
+                    <div class="subheader">Period: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Employee Name</th>
+                                <th>Staff ID</th>
+                                <th>Status</th>
+                                <th>Total Shifts</th>
+                                <th>Total Hours</th>
+                                <th>Total Earnings (PKR)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows.map(r => {
+                                let rowClass = r.status === 'Present' ? 'present' : 
+                                              r.status === 'Closed' ? 'closed' : 
+                                              r.status === 'Pending' ? 'pending' : 
+                                              r.status === 'Holiday' ? 'holiday' : 'offline';
+                                return `
+                                    <tr class="${rowClass}">
+                                        <td class="text-left font-bold">${r.name}</td>
+                                        <td class="text-center font-mono">${r.id}</td>
+                                        <td class="text-center font-bold">${r.status}</td>
+                                        <td class="text-center">${r.shifts}</td>
+                                        <td class="text-center">${r.hours}h</td>
+                                        <td class="text-right money">Rs. ${parseFloat(r.salary).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #8b0000; color: white; font-weight: bold;">
+                                <td colspan="4" class="text-right">TOTALS:</td>
+                                <td class="text-center">${totalHours.toFixed(2)}h</td>
+                                <td class="text-right">Rs. ${totalMoney.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                `;
+            };
+
+            // NEW: Helper function for Absentees table
+            const generateAbsenteesTable = (absentees, rangeLabel, start, end) => {
+                return `
+                    <div class="header" style="color: #dc2626;">⚠️ ABSENTEE REPORT - ${rangeLabel}</div>
+                    <div class="subheader">Staff with NO attendance records<br>Period: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}</div>
+                    <table>
+                        <thead>
+                            <tr style="background-color: #dc2626;">
+                                <th>#</th>
+                                <th>Employee Name</th>
+                                <th>Staff ID</th>
+                                <th>Scheduled Shift</th>
+                                <th>Expected Check-in</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${absentees.map((staff, idx) => `
+                                <tr class="absent" style="background-color: #fef2f2;">
+                                    <td class="text-center font-bold">${idx + 1}</td>
+                                    <td class="text-left font-bold" style="color: #991b1b;">${staff.full_name}</td>
+                                    <td class="text-center font-mono">${staff.display_id}</td>
+                                    <td class="text-center">${staff.shift_start || 'N/A'} - ${staff.shift_end || 'N/A'}</td>
+                                    <td class="text-center">${staff.shift_start || '--:--'}</td>
+                                    <td class="text-center font-bold" style="color: #dc2626;">ABSENT</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #dc2626; color: white; font-weight: bold;">
+                                <td colspan="6" class="text-center">TOTAL ABSENT: ${absentees.length} STAFF MEMBERS</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                `;
+            };
+
+            // Helper function for Daily detailed table
+            const generateDailyTable = (dayLogs, dayName, dayDate, profiles) => {
+                return `
+                    <div class="header">Daily Detail - ${dayName}</div>
+                    <div class="subheader">${dayDate.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Check-In</th>
+                                <th>Check-Out</th>
+                                <th>Duration</th>
+                                <th>Uniform</th>
+                                <th>Earnings (PKR)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${dayLogs.map(log => {
+                                const profile = profiles.find(p => p.id === log.employee_id);
+                                const start = new Date(log.check_in);
+                                const end = log.check_out ? new Date(log.check_out) : null;
+                                const duration = end ? ((end - start) / 3600000).toFixed(2) : 'LIVE';
+                                const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : '0.00';
+                                
+                                return `
+                                    <tr>
+                                        <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
+                                        <td class="text-center">${start.toLocaleTimeString()}</td>
+                                        <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'LIVE'}</td>
+                                        <td class="text-center">${duration}h</td>
+                                        <td class="text-center">${log.uniform ? 'ON' : 'OFF'}</td>
+                                        <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            };
+
+            // Helper function for All-Time/Rolling detailed table
+            const generateAllTimeTable = (logs, scope, profiles) => {
+                return `
+                    <div class="header">Complete Shift Records - ${scope.toUpperCase()} View</div>
+                    <div class="subheader">All individual shifts in selected period</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Employee</th>
+                                <th>Check-In</th>
+                                <th>Check-Out</th>
+                                <th>Hours</th>
+                                <th>Status</th>
+                                <th>Earnings (PKR)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${logs.map(log => {
+                                const profile = profiles.find(p => p.id === log.employee_id);
+                                const start = new Date(log.check_in);
+                                const end = log.check_out ? new Date(log.check_out) : null;
+                                const hours = end ? ((end - start) / 3600000).toFixed(2) : ((Date.now() - start) / 3600000).toFixed(2);
+                                const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : 
+                                    (((Date.now() - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2);
+                                
+                                return `
+                                    <tr>
+                                        <td class="text-center">${start.toLocaleDateString()}</td>
+                                        <td class="font-bold">${profile?.full_name || 'Unknown'}</td>
+                                        <td class="text-center">${start.toLocaleTimeString()}</td>
+                                        <td class="text-center ${!end ? 'text-indigo-600 font-bold' : ''}">${end ? end.toLocaleTimeString() : 'ONGOING'}</td>
+                                        <td class="text-center">${hours}h</td>
+                                        <td class="text-center">${end ? 'CLOSED' : '<span style="color:#10b981;">LIVE</span>'}</td>
+                                        <td class="text-right money">Rs. ${parseFloat(earnings).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            };
 
             const filteredArchives = useMemo(() => {
                 return logs.filter(l => 
@@ -961,114 +1097,275 @@ const generateAllTimeTable = (logs, scope, profiles) => {
                                 {/* SCROLLING DASHBOARD AREA */}
                                 <main className="flex-1 p-8 md:p-12 overflow-y-auto custom-scroll">
                                     {adminTab === 'overview' && (
-    <div className="animate-fade uppercase font-black">
-        {/* HEADER WITH DATE CONTROLS */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-4">
-            <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Intelligence Summary</h2>
-            
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-white p-3 rounded-2xl border shadow-sm uppercase">
-                {/* Mode Toggle */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                    <button onClick={() => setDateMode('rolling')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'rolling' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Rolling</button>
-                    <button onClick={() => setDateMode('custom')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'custom' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Custom</button>
-                </div>
+                                        <div className="animate-fade uppercase font-black">
+                                            {/* HEADER WITH DATE CONTROLS */}
+                                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-4">
+                                                <h2 className="text-4xl font-black tracking-tighter text-[#8b0000] uppercase">Intelligence Summary</h2>
+                                                
+                                                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-white p-3 rounded-2xl border shadow-sm uppercase">
+                                                    {/* Mode Toggle - NOW WITH ABSENTEES */}
+                                                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                                                        <button onClick={() => setDateMode('rolling')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'rolling' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Rolling</button>
+                                                        <button onClick={() => setDateMode('custom')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${dateMode === 'custom' ? 'bg-white text-[#f37021] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Custom</button>
+                                                        <button onClick={() => setDateMode('absentees')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${dateMode === 'absentees' ? 'bg-red-500 text-white shadow-sm' : 'text-red-400 hover:text-red-600'}`}>
+                                                            <Icons.userX className="w-3 h-3" /> Absentees
+                                                        </button>
+                                                    </div>
 
-                <div className="hidden sm:block w-[1px] h-6 bg-slate-200"></div>
+                                                    <div className="hidden sm:block w-[1px] h-6 bg-slate-200"></div>
 
-                {/* Rolling Scope Buttons */}
-                {dateMode === 'rolling' && ['day', 'week', 'month'].map(t => (
-                    <button key={t} onClick={() => setScope(t)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${scope === t ? 'bg-[#f37021] text-white' : 'text-slate-400 hover:bg-slate-50'}`}>{t}</button>
-                ))}
+                                                    {/* Rolling Scope Buttons - Only show if not in absentees mode */}
+                                                    {dateMode !== 'absentees' && dateMode === 'rolling' && ['day', 'week', 'month'].map(t => (
+                                                        <button key={t} onClick={() => setScope(t)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${scope === t ? 'bg-[#f37021] text-white' : 'text-slate-400 hover:bg-slate-50'}`}>{t}</button>
+                                                    ))}
 
-                {/* Custom Date Range Pickers */}
-                {dateMode === 'custom' && (
-                    <div className="flex items-center gap-2">
-                        <div className="flex flex-col">
-                            <label className="text-[8px] text-slate-400 ml-1">FROM</label>
-                            <input 
-                                type="date" 
-                                value={startDate} 
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
-                            />
-                        </div>
-                        <span className="text-slate-400 mt-4">→</span>
-                        <div className="flex flex-col">
-                            <label className="text-[8px] text-slate-400 ml-1">TO</label>
-                            <input 
-                                type="date" 
-                                value={endDate} 
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
-                            />
-                        </div>
-                    </div>
-                )}
+                                                    {/* Custom Date Range Pickers */}
+                                                    {dateMode === 'custom' && (
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex flex-col">
+                                                                <label className="text-[8px] text-slate-400 ml-1">FROM</label>
+                                                                <input 
+                                                                    type="date" 
+                                                                    value={startDate} 
+                                                                    onChange={(e) => setStartDate(e.target.value)}
+                                                                    className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
+                                                                />
+                                                            </div>
+                                                            <span className="text-slate-400 mt-4">→</span>
+                                                            <div className="flex flex-col">
+                                                                <label className="text-[8px] text-slate-400 ml-1">TO</label>
+                                                                <input 
+                                                                    type="date" 
+                                                                    value={endDate} 
+                                                                    onChange={(e) => setEndDate(e.target.value)}
+                                                                    className="px-3 py-2 rounded-xl text-[11px] font-black border border-slate-200 outline-none focus:border-[#f37021] bg-slate-50"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
 
-                <div className="hidden sm:block w-[1px] h-6 bg-slate-100"></div>
-                <button onClick={exportExcel} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"><Icons.download className="w-5 h-5" /></button>
-            </div>
-        </div>
+                                                    {/* Absentees Date Range */}
+                                                    {dateMode === 'absentees' && (
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex flex-col">
+                                                                <label className="text-[8px] text-red-400 ml-1 font-black">SHIFT DATE (10AM-2AM)</label>
+                                                                <input 
+                                                                    type="date" 
+                                                                    value={startDate} 
+                                                                    onChange={(e) => {setStartDate(e.target.value); setEndDate(e.target.value);}}
+                                                                    className="px-3 py-2 rounded-xl text-[11px] font-black border border-red-200 outline-none focus:border-red-500 bg-red-50 text-red-900"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
 
-        {/* DATE RANGE DISPLAY */}
-        <div className="mb-6 flex items-center gap-2">
-            <div className="bg-[#f37021] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">
-                {dateMode === 'rolling' ? `${scope} View` : 'Custom Range'}
-            </div>
-            <div className="text-slate-500 text-[11px] font-bold">
-                {dateMode === 'rolling' ? (
-                    scope === 'day' ? 'Last 24 Hours (10AM - 10AM)' :
-                    scope === 'week' ? 'Last 7 Days' :
-                    'Current Month'
-                ) : (
-                    `${new Date(startDate).toLocaleDateString()} → ${new Date(endDate).toLocaleDateString()}`
-                )}
-            </div>
-        </div>
+                                                    <div className="hidden sm:block w-[1px] h-6 bg-slate-100"></div>
+                                                    <button onClick={exportExcel} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"><Icons.download className="w-5 h-5" /></button>
+                                                </div>
+                                            </div>
 
-        <VisualIntelligence logs={logs} adminData={adminProcessedData} scope={scope} />
+                                            {/* DATE RANGE DISPLAY */}
+                                            <div className="mb-6 flex items-center gap-2">
+                                                <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase ${dateMode === 'absentees' ? 'bg-red-500 text-white' : 'bg-[#f37021] text-white'}`}>
+                                                    {dateMode === 'rolling' ? `${scope} View` : 
+                                                     dateMode === 'custom' ? 'Custom Range' : 
+                                                     '⚠️ ABSENTEE REPORT'}
+                                                </div>
+                                                <div className="text-slate-500 text-[11px] font-bold">
+                                                    {dateMode === 'rolling' ? (
+                                                        scope === 'day' ? 'Last 24 Hours (10AM - 10AM)' :
+                                                        scope === 'week' ? 'Last 7 Days' :
+                                                        'Current Month'
+                                                    ) : dateMode === 'custom' ? (
+                                                        `${new Date(startDate).toLocaleDateString()} → ${new Date(endDate).toLocaleDateString()}`
+                                                    ) : (
+                                                        `Shift Window: ${new Date(startDate).toLocaleDateString()} 10:00 AM → ${new Date(new Date(startDate).getTime() + 16 * 60 * 60 * 1000).toLocaleDateString()} 2:00 AM`
+                                                    )}
+                                                </div>
+                                            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
-                <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">On-Duty</p><p className="text-5xl font-black text-emerald-500">{logs.filter(l=>!l.check_out).length}</p></div>
-                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><Icons.activity className="w-6 h-6" /></div>
-            </div>
-            <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
-                <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase mb-1">{dateMode === 'rolling' ? scope : 'Custom'} Period Cost</p><p className="text-3xl font-black tracking-tighter uppercase">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
-                <Icons.zap className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5" />
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
-                <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Members</p><p className="text-5xl font-black text-slate-900">{profiles.length}</p></div>
-                <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><Icons.users className="w-6 h-6" /></div>
-            </div>
-        </div>
+                                            {/* CONDITIONAL CONTENT: Regular Dashboard vs Absentee Report */}
+                                            {dateMode === 'absentees' ? (
+                                                /* --- ABSENTEE REPORT VIEW --- */
+                                                <div className="animate-fade">
+                                                    {!canShowAbsentees ? (
+                                                        /* WAITING MESSAGE - Shift window not closed yet */
+                                                        <div className="bg-amber-50 border-2 border-amber-200 rounded-[3rem] p-16 text-center">
+                                                            <div className="w-24 h-24 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                                                <Icons.clock className="w-12 h-12" />
+                                                            </div>
+                                                            <h4 className="text-3xl font-black text-amber-700 uppercase mb-4">Shift Window Still Open</h4>
+                                                            <p className="text-amber-600 text-lg font-bold mb-2">
+                                                                Current Time: {new Date(currentTime).toLocaleTimeString()}
+                                                            </p>
+                                                            <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
+                                                                Staff can still check in until <span className="font-black text-amber-600">2:00 AM</span>. 
+                                                                Absentee report will be available after the shift window closes.
+                                                                <br/><br/>
+                                                                <span className="text-xs uppercase tracking-widest">Check back after 2:00 AM to see confirmed absentees.</span>
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            {/* Absentee Stats Cards */}
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                                                                <div className="bg-red-50 p-8 rounded-[2.5rem] border-2 border-red-100 flex justify-between items-center">
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-red-400 uppercase mb-1">Total Absent</p>
+                                                                        <p className="text-5xl font-black text-red-600">{absenteesData.length}</p>
+                                                                    </div>
+                                                                    <div className="w-14 h-14 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center">
+                                                                        <Icons.userX className="w-6 h-6" />
+                                                                    </div>
+                                                                </div>
+                                                                <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Total Staff</p>
+                                                                        <p className="text-5xl font-black text-slate-900">{profiles.length}</p>
+                                                                    </div>
+                                                                    <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center">
+                                                                        <Icons.users className="w-6 h-6" />
+                                                                    </div>
+                                                                </div>
+                                                                <div className="bg-emerald-50 p-8 rounded-[2.5rem] border-2 border-emerald-100 flex justify-between items-center">
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-emerald-600 uppercase mb-1">Attendance Rate</p>
+                                                                        <p className="text-5xl font-black text-emerald-600">
+                                                                            {profiles.length > 0 ? Math.round(((profiles.length - absenteesData.length) / profiles.length) * 100) : 0}%
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-3xl flex items-center justify-center">
+                                                                        <Icons.activity className="w-6 h-6" />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
 
-        <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
-            <table className="w-full text-left text-sm uppercase">
-                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                    <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6 text-center">Work Days</th><th className="px-10 py-6 text-right">Scope PKR</th></tr>
-                </thead>
-                <tbody className="divide-y font-bold">
-                    {adminProcessedData.map((r, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-all">
-                            <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
-                            <td className="px-10 py-7 uppercase">
-                                <div className="flex items-center gap-3">
-                                    {(r.isActive || r.adminStatus === 'Closed') && (
-                                        <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>{r.uniform ? 'OK' : 'OFF'}</button>
+                                                            {/* Absentee Table */}
+                                                            <div className="bg-white rounded-[3rem] border-2 border-red-100 shadow-2xl overflow-hidden font-black">
+                                                                <div className="bg-red-500 px-10 py-6 flex items-center justify-between">
+                                                                    <h3 className="text-white font-black text-lg uppercase tracking-wider flex items-center gap-3">
+                                                                        <Icons.alert className="w-5 h-5" /> 
+                                                                        Staff With No Attendance Records
+                                                                    </h3>
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-[10px] font-black">
+                                                                            {new Date(startDate).toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                                                        </span>
+                                                                        <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-[10px] font-black">
+                                                                            Window Closed: 2:00 AM
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {absenteesData.length === 0 ? (
+                                                                    <div className="p-16 text-center">
+                                                                        <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                                                                            <Icons.activity className="w-12 h-12" />
+                                                                        </div>
+                                                                        <h4 className="text-2xl font-black text-emerald-600 uppercase mb-2">All Present!</h4>
+                                                                        <p className="text-slate-400 text-sm font-bold">No absentees found for the selected shift window.</p>
+                                                                        <p className="text-slate-400 text-xs mt-2">
+                                                                            (10:00 AM - 2:00 AM next day)
+                                                                        </p>
+                                                                    </div>
+                                                                ) : (
+                                                                    <table className="w-full text-left text-sm uppercase">
+                                                                        <thead className="bg-red-50 text-[10px] font-black text-red-400 uppercase tracking-widest border-b border-red-100">
+                                                                            <tr>
+                                                                                <th className="px-10 py-6">#</th>
+                                                                                <th className="px-10 py-6">Member</th>
+                                                                                <th className="px-10 py-6 text-center">Staff ID</th>
+                                                                                <th className="px-10 py-6 text-center">Scheduled Shift</th>
+                                                                                <th className="px-10 py-6 text-center">Expected Check-in</th>
+                                                                                <th className="px-10 py-6 text-right">Status</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-red-50 font-bold">
+                                                                            {absenteesData.map((staff, index) => (
+                                                                                <tr key={staff.id} className="hover:bg-red-50/50 transition-all">
+                                                                                    <td className="px-10 py-7 text-slate-400 font-mono">{index + 1}</td>
+                                                                                    <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black text-red-900">
+                                                                                        <div className="w-10 h-10 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-xs">
+                                                                                            {staff.full_name.split(' ').map(n => n[0]).join('').slice(0,2)}
+                                                                                        </div>
+                                                                                        {staff.full_name}
+                                                                                    </td>
+                                                                                    <td className="px-10 py-7 font-mono text-[#f37021] text-center tracking-[0.2em] font-black">{staff.display_id}</td>
+                                                                                    <td className="px-10 py-7 text-center font-mono text-slate-600">
+                                                                                        {staff.shift_start || '--:--'} → {staff.shift_end || '--:--'}
+                                                                                    </td>
+                                                                                    <td className="px-10 py-7 text-center font-mono text-red-400">
+                                                                                        {staff.shift_start || 'N/A'}
+                                                                                    </td>
+                                                                                    <td className="px-10 py-7 text-right">
+                                                                                        <span className="px-6 py-3 bg-red-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-wider shadow-lg shadow-red-200">
+                                                                                            ABSENT
+                                                                                        </span>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                        <tfoot className="bg-red-500 text-white">
+                                                                            <tr>
+                                                                                <td colSpan="6" className="px-10 py-6 text-center font-black text-sm">
+                                                                                    TOTAL ABSENT: {absenteesData.length} STAFF MEMBERS
+                                                                                </td>
+                                                                            </tr>
+                                                                        </tfoot>
+                                                                    </table>
+                                                                )}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                /* --- REGULAR DASHBOARD VIEW --- */
+                                                <>
+                                                    <VisualIntelligence logs={logs} adminData={adminProcessedData} scope={scope} />
+
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                                                        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                                                            <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">On-Duty</p><p className="text-5xl font-black text-emerald-500">{logs.filter(l=>!l.check_out).length}</p></div>
+                                                            <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center live-dot"><Icons.activity className="w-6 h-6" /></div>
+                                                        </div>
+                                                        <div className="bg-[#0F172A] p-8 rounded-[2.5rem] shadow-2xl text-white flex justify-between items-center relative overflow-hidden">
+                                                            <div className="relative z-10"><p className="text-[10px] text-slate-500 uppercase mb-1">{dateMode === 'rolling' ? scope : 'Custom'} Period Cost</p><p className="text-3xl font-black tracking-tighter uppercase">Rs. {adminProcessedData.reduce((a,b)=>a+parseFloat(b.salary),0).toLocaleString()}</p></div>
+                                                            <Icons.zap className="absolute right-[-10%] bottom-[-10%] w-32 h-32 opacity-5" />
+                                                        </div>
+                                                        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex justify-between items-center">
+                                                            <div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Members</p><p className="text-5xl font-black text-slate-900">{profiles.length}</p></div>
+                                                            <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-3xl flex items-center justify-center"><Icons.users className="w-6 h-6" /></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="bg-white rounded-[3rem] border shadow-2xl overflow-hidden font-black">
+                                                        <table className="w-full text-left text-sm uppercase">
+                                                            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                                                <tr><th className="px-10 py-6">Member</th><th className="px-10 py-6">Status / Uniform</th><th className="px-10 py-6 text-center">Work Days</th><th className="px-10 py-6 text-right">Scope PKR</th></tr>
+                                                            </thead>
+                                                            <tbody className="divide-y font-bold">
+                                                                {adminProcessedData.map((r, i) => (
+                                                                    <tr key={i} className="hover:bg-slate-50 transition-all">
+                                                                        <td className="px-10 py-7 text-base flex items-center gap-3 uppercase font-black">{r.isActive && <div className="w-2 h-2 bg-emerald-500 rounded-full live-dot"></div>}{r.full_name}</td>
+                                                                        <td className="px-10 py-7 uppercase">
+                                                                            <div className="flex items-center gap-3">
+                                                                                {(r.isActive || r.adminStatus === 'Closed') && (
+                                                                                    <button onClick={() => toggleUniform(r.activeShiftId, r.uniform)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${r.isActive ? 'btn-3d' : 'cursor-default'} ${r.uniform ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-200 text-slate-400'}`}>{r.uniform ? 'OK' : 'OFF'}</button>
+                                                                                )}
+                                                                                <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${r.adminStatus === 'Present' ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{r.adminStatus}</span>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-10 py-7 text-center font-black">{(r.totalSecs/36000).toFixed(2)}</td>
+                                                                        <td className="px-10 py-7 text-right text-[#f37021] text-2xl font-black tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     )}
-                                    <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${r.adminStatus === 'Present' ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{r.adminStatus}</span>
-                                </div>
-                            </td>
-                            <td className="px-10 py-7 text-center font-black">{(r.totalSecs/36000).toFixed(2)}</td>
-                            <td className="px-10 py-7 text-right text-[#f37021] text-2xl font-black tracking-tighter">Rs. {parseFloat(r.salary).toLocaleString()}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
                                     {adminTab === 'staff' && (
                                         <div className="animate-fade font-black uppercase">
                                             <div className="flex justify-between items-center mb-12">
