@@ -6,14 +6,14 @@
     <title>RestoFlow | OvenX Admin Intelligence</title>
     
     <!-- Scripts -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com "></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js "></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js "></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js "></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2 "></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js "></script>
     
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400 ;600;700;800&display=swap" rel="stylesheet">
     
     <style>
         :root { 
@@ -115,7 +115,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        const SUPABASE_URL = 'https://oapejxvzmrqkvodnetcr.supabase.co';
+        const SUPABASE_URL = 'https://oapejxvzmrqkvodnetcr.supabase.co ';
         const SUPABASE_KEY = 'sb_publishable_3JnTs-MS475tjzYWpK3d8g_4j81ObNT';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -125,9 +125,9 @@
 
         const playSfx = (type) => {
             const sounds = {
-                pop: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
-                success: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
-                error: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3'
+                pop: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3 ',
+                success: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3 ',
+                error: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3 '
             };
             const a = new Audio(sounds[type]); 
             a.volume = 0.3; 
@@ -378,6 +378,18 @@
         });
 
     }, [chartData]);
+    useEffect(() => {
+        return () => {
+            if (charts.current.line) {
+                charts.current.line.destroy();
+                charts.current.line = null;
+            }
+            if (charts.current.dough) {
+                charts.current.dough.destroy();
+                charts.current.dough = null;
+            }
+        };
+    }, []);
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
@@ -433,31 +445,46 @@
             }, [view, adminTab]);
 
             // --- AUTO-CHECKOUT ENGINE ---
-            useEffect(() => {
-                const runAutoCheck = async () => {
-                    const now = new Date();
-                    const liveShifts = logs.filter(l => !l.check_out);
-                    
-                    for (const shift of liveShifts) {
-                        const prof = profiles.find(p => p.id === shift.employee_id);
-                        if (!prof || !prof.shift_end) continue;
-                        
-                        const [endH, endM] = prof.shift_end.split(':').map(Number);
-                        const checkInDate = new Date(shift.check_in);
-                        let autoEnd = new Date(checkInDate);
-                        autoEnd.setHours(endH, endM, 0, 0);
-                        
-                        if (autoEnd <= checkInDate) autoEnd.setDate(autoEnd.getDate() + 1);
-                        
-                        if (now >= autoEnd) {
-                            await sb.from('attendance').update({ check_out: autoEnd.toISOString() }).eq('id', shift.id);
-                            refreshData();
-                            if(employee && employee.id === prof.id) setEmployee(null);
-                        }
-                    }
-                };
-                if (new Date(currentTime).getSeconds() === 0) runAutoCheck();
-            }, [currentTime, logs, profiles]);
+useEffect(() => {
+    const runAutoCheck = async () => {
+        const now = new Date();
+        const liveShifts = logs.filter(l => !l.check_out);
+        
+        for (const shift of liveShifts) {
+            const prof = profiles.find(p => p.id === shift.employee_id);
+            if (!prof || !prof.shift_end) continue;
+            
+            const checkIn = new Date(shift.check_in);
+            const [endH, endM] = prof.shift_end.split(':').map(Number);
+            
+            // Set checkout to their shift_end time on check-in date
+            let autoEnd = new Date(checkIn);
+            autoEnd.setHours(endH, endM, 0, 0);
+            
+            // If shift_end is before check-in time (overnight), push to next day
+            if (autoEnd <= checkIn) {
+                autoEnd.setDate(autoEnd.getDate() + 1);
+            }
+            
+            // Auto-checkout time reached
+            if (now >= autoEnd) {
+                await sb.from('attendance').update({ check_out: autoEnd.toISOString() }).eq('id', shift.id);
+                refreshData();
+                if(employee && employee.id === prof.id) setEmployee(null);
+            }
+        }
+    };
+    
+    if (new Date(currentTime).getSeconds() === 0) runAutoCheck();
+}, [currentTime, logs, profiles]);
+
+// --- CHECK IF RESTAURANT IS CLOSED (2 AM - 10 AM) ---
+const isRestaurantClosed = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    // Closed from 2:00 AM to 9:59 AM
+    return hour >= 2 && hour < 10;
+};
 
             const refreshData = async () => {
                 const { data: p } = await sb.from('profiles').select('*').order('created_at', { ascending: false });
@@ -808,7 +835,7 @@
 
                 // Combine all worksheets into final HTML
                 let finalHtml = `
-                    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40 ">
                     <head>
                         <meta charset="UTF-8">
                         <style>
@@ -1053,36 +1080,157 @@
                         {view === 'kiosk' ? (
                             /* --- KIOSK MODE --- */
                             <div className="flex-1 flex items-center justify-center p-6 bg-[#F1F5F9] relative overflow-hidden font-black uppercase">
-                                {!employee ? (
-                                    <div className="kiosk-card p-12 max-w-sm w-full text-center animate-fade">
-                                        <h1 className="text-2xl font-black mb-8 text-[#8b0000] uppercase">STAFF LOGIN</h1>
-                                        <div className="h-24 bg-slate-50 border-4 border-dashed rounded-[2.5rem] flex items-center justify-center text-5xl font-mono tracking-[0.4em] text-[#f37021] mb-8 font-black leading-none">{pin || '----'}</div>
-                                        <div className="grid grid-cols-3 gap-4 mb-6 uppercase font-black">
-                                            {[1,2,3,4,5,6,7,8,9,'C',0,'OK'].map(k => (
-                                                <button key={k} onClick={() => {playSfx('pop'); k==='C'?setPin(''):k==='OK'?handleLogin():setPin(p=>(p+k).slice(0,4))}}
-                                                    className={`h-16 rounded-2xl font-black text-xl btn-3d ${k==='OK'?'bg-[#f37021] text-white shadow-[0_5px_0px_#b34e12]':'bg-white border-2 shadow-[0_5px_0px_#eee]'}`}>{k}</button>
-                                            ))}
-                                        </div>
-                                        <button onClick={handleFingerprintLogin} className="w-full py-6 bg-[#0F172A] text-white rounded-[2rem] font-black flex items-center justify-center gap-4 btn-3d shadow-[0_6px_0px_#000] text-sm tracking-widest uppercase">
-                                            <Icons.fingerprint className="w-6 h-6" /> SCAN FINGER
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl">
-                                        <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter uppercase">{employee.full_name}</h2>
-                                        <p className="text-slate-400 font-bold uppercase text-[10px] mt-4 mb-10 tracking-widest">ID: {employee.display_id}</p>
-                                        <div className="grid grid-cols-2 gap-5 mb-8 text-left uppercase">
-                                            <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Period Earnings</p><p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p></div>
-                                            <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Work Hours</p><p className="text-2xl font-black text-slate-800 font-mono">{Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h</p></div>
-                                        </div>
-                                        {employee.currentShift ? (
-                                            <div><LiveShiftEngine startTime={employee.currentShift.check_in} dailyRate={employee.daily_rate} /><button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] uppercase">Finish Shift</button></div>
-                                        ) : (
-                                            <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] uppercase">Start Shift</button>
-                                        )}
-                                        <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] uppercase tracking-widest">Logout</button>
-                                    </div>
-                                )}
+                                                              {!employee ? (
+    <div className="kiosk-card p-10 max-w-md w-full animate-fade relative overflow-hidden">
+        {/* Background glow effects */}
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-orange-50/50 via-white to-red-50/50 pointer-events-none"></div>
+        <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#f37021]/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-[#8b0000]/10 rounded-full blur-3xl"></div>
+        
+        {isRestaurantClosed() ? (
+            // RESTAURANT CLOSED MESSAGE
+            <div className="relative z-10 bg-red-50 border-4 border-red-200 rounded-[2.5rem] p-8 mb-6">
+                <div className="text-6xl mb-4">🌙</div>
+                <h2 className="text-xl font-black text-red-600 uppercase mb-2">Restaurant Closed</h2>
+                <p className="text-red-500 text-sm font-bold mb-4">
+                    We are closed until 10:00 AM
+                </p>
+                <p className="text-slate-400 text-xs">
+                    Current time: {new Date(currentTime).toLocaleTimeString()}
+                </p>
+                <p className="text-slate-400 text-[10px] mt-2 uppercase tracking-widest">
+                    Please come back when new day starts
+                </p>
+            </div>
+        ) : (
+            // NORMAL LOGIN
+            <React.Fragment>
+                {/* Header */}
+                <div className="relative z-10 text-center mb-8">
+                    <div className="inline-flex items-center justify-center w-20 h-20 mb-4 rounded-3xl bg-gradient-to-br from-[#f37021] to-[#b34e12] shadow-[0_10px_40px_rgba(243,112,33,0.4)] btn-3d">
+                        <Icons.fingerprint className="w-10 h-10 text-white" />
+                    </div>
+                    <h1 className="text-3xl font-black text-[#8b0000] uppercase tracking-tighter">STAFF LOGIN</h1>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em] mt-2">Secure Access Portal</p>
+                </div>
+
+                {/* PIN Display - Glassmorphism */}
+                <div className="relative z-10 mb-8">
+                    <div className="bg-gradient-to-b from-slate-50 to-white border-2 border-slate-100 rounded-3xl p-6 shadow-[inset_0_4px_20px_rgba(0,0,0,0.05),0_8px_30px_rgba(0,0,0,0.08)]">
+                        <div className="flex justify-center items-center gap-4 h-12">
+                            {[0,1,2,3].map((i) => (
+                                <div key={i} className="w-12 h-12 flex items-center justify-center">
+                                    {pin.length > i ? (
+                                        <span className="text-4xl font-mono font-black text-[#f37021] animate-fade">{pin[i]}</span>
+                                    ) : (
+                                        <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Number Pad - 3D Buttons */}
+                <div className="relative z-10 grid grid-cols-3 gap-4 mb-6">
+                    {[1,2,3,4,5,6,7,8,9].map(num => (
+                        <button 
+                            key={num} 
+                            onClick={() => {playSfx('pop'); setPin(p => (p + num).slice(0,4))}}
+                            className="group relative h-16 rounded-2xl bg-gradient-to-b from-white to-slate-50 border border-slate-200 shadow-[0_6px_0_#e2e8f0,0_8px_20px_rgba(0,0,0,0.1)] active:shadow-[0_2px_0_#e2e8f0,0_4px_10px_rgba(0,0,0,0.1)] active:translate-y-1 transition-all duration-100"
+                        >
+                            <span className="absolute inset-0 bg-gradient-to-b from-white/50 to-transparent rounded-2xl"></span>
+                            <span className="relative text-2xl font-black text-slate-700 group-hover:text-[#f37021] transition-colors">{num}</span>
+                        </button>
+                    ))}
+                    
+                    {/* C Button - Red */}
+                    <button 
+                        onClick={() => {playSfx('pop'); setPin('')}}
+                        className="group relative h-16 rounded-2xl bg-gradient-to-b from-red-500 to-red-600 border border-red-600 shadow-[0_6px_0_#991b1b,0_8px_20px_rgba(220,38,38,0.3)] active:shadow-[0_2px_0_#991b1b,0_4px_10px_rgba(220,38,38,0.3)] active:translate-y-1 transition-all duration-100"
+                    >
+                        <span className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent rounded-2xl"></span>
+                        <span className="relative text-lg font-black text-white">CLEAR</span>
+                    </button>
+                    
+                    {/* 0 Button */}
+                    <button 
+                        onClick={() => {playSfx('pop'); setPin(p => (p + '0').slice(0,4))}}
+                        className="group relative h-16 rounded-2xl bg-gradient-to-b from-white to-slate-50 border border-slate-200 shadow-[0_6px_0_#e2e8f0,0_8px_20px_rgba(0,0,0,0.1)] active:shadow-[0_2px_0_#e2e8f0,0_4px_10px_rgba(0,0,0,0.1)] active:translate-y-1 transition-all duration-100"
+                    >
+                        <span className="absolute inset-0 bg-gradient-to-b from-white/50 to-transparent rounded-2xl"></span>
+                        <span className="relative text-2xl font-black text-slate-700 group-hover:text-[#f37021] transition-colors">0</span>
+                    </button>
+                    
+                    {/* OK Button - Orange */}
+                    <button 
+                        onClick={() => {playSfx('pop'); handleLogin()}}
+                        className="group relative h-16 rounded-2xl bg-gradient-to-b from-[#f37021] to-[#b34e12] border border-[#b34e12] shadow-[0_6px_0_#8b4513,0_8px_20px_rgba(243,112,33,0.4)] active:shadow-[0_2px_0_#8b4513,0_4px_10px_rgba(243,112,33,0.4)] active:translate-y-1 transition-all duration-100"
+                    >
+                        <span className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent rounded-2xl"></span>
+                        <span className="relative text-lg font-black text-white">ENTER</span>
+                    </button>
+                </div>
+
+                {/* Divider */}
+                <div className="relative z-10 flex items-center gap-4 mb-6">
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent"></div>
+                    <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Or</span>
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent"></div>
+                </div>
+
+                {/* Fingerprint Button - Premium */}
+                <button 
+                    onClick={handleFingerprintLogin} 
+                    className="relative z-10 w-full py-5 rounded-2xl bg-gradient-to-r from-[#0F172A] via-[#1e293b] to-[#0F172A] border border-slate-700 shadow-[0_8px_0_#000,0_20px_40px_rgba(0,0,0,0.3)] active:shadow-[0_4px_0_#000,0_10px_20px_rgba(0,0,0,0.3)] active:translate-y-1 transition-all duration-100 group overflow-hidden"
+                >
+                    {/* Animated gradient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+                    
+                    <div className="relative flex items-center justify-center gap-4">
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg">
+                            <Icons.fingerprint className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="text-left">
+                            <span className="block text-sm font-black text-white uppercase tracking-wider">Biometric Login</span>
+                            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-widest">Touch to Scan</span>
+                        </div>
+                    </div>
+                </button>
+
+                {/* Footer */}
+                <div className="relative z-10 mt-6 text-center">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                        OvenX Staff Management System
+                    </p>
+                </div>
+            </React.Fragment>
+        )}
+    </div>
+) : (
+    // EMPLOYEE LOGGED IN VIEW
+    <div className="kiosk-card p-12 max-w-lg w-full text-center animate-fade shadow-2xl relative overflow-hidden">
+        {/* Background glow effects */}
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-orange-50/50 via-white to-red-50/50 pointer-events-none"></div>
+        <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#f37021]/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-[#8b0000]/10 rounded-full blur-3xl"></div>
+        
+        <div className="relative z-10">
+            <h2 className="text-5xl font-black text-[#8b0000] tracking-tighter uppercase">{employee.full_name}</h2>
+            <p className="text-slate-400 font-bold uppercase text-[10px] mt-4 mb-10 tracking-widest">ID: {employee.display_id}</p>
+            <div className="grid grid-cols-2 gap-5 mb-8 text-left uppercase">
+                <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Period Earnings</p><p className="text-2xl font-black text-slate-800">Rs. {adminProcessedData.find(d => d.id === employee.id)?.salary || 0}</p></div>
+                <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-white"><p className="text-[10px] font-black text-slate-400 uppercase">Work Hours</p><p className="text-2xl font-black text-slate-800 font-mono">{Math.floor((adminProcessedData.find(d => d.id === employee.id)?.totalSecs || 0) / 3600)}h</p></div>
+            </div>
+            {employee.currentShift ? (
+                <div><LiveShiftEngine startTime={employee.currentShift.check_in} dailyRate={employee.daily_rate} /><button onClick={() => toggleShift('out')} className="w-full mt-10 py-7 bg-[#8b0000] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#5e0000] uppercase">Finish Shift</button></div>
+            ) : (
+                <button onClick={() => toggleShift('in')} className="w-full py-7 bg-[#f37021] text-white rounded-[2.5rem] font-black text-2xl btn-3d shadow-[0_6px_0px_#b34e12] uppercase">Start Shift</button>
+            )}
+            <button onClick={() => setEmployee(null)} className="mt-10 text-slate-400 font-bold hover:text-[#f37021] text-[11px] uppercase tracking-widest relative z-10">Logout</button>
+        </div>
+    </div>
+)}
                             </div>
                         ) : (
                             /* --- ADMIN MODE --- */
