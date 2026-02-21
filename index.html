@@ -296,14 +296,14 @@
             });
 
             const costPoints = labels.map(label => {
-                return logs.filter(l => new Date(l.check_in).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) === label)
-                           .reduce((sum, log) => {
-                               const start = new Date(log.check_in);
-                               const end = log.check_out ? new Date(log.check_out) : new Date();
-                               const hrs = (end - start) / 3600000;
-                               return sum + (hrs * (log.profiles?.daily_rate / 10 || 0));
-                           }, 0);
-            });
+    return logs.filter(l => new Date(l.check_in).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) === label)
+               .reduce((sum, log) => {
+                   const start = new Date(log.check_in);
+                   const end = log.check_out ? new Date(log.check_out) : new Date();
+                   const hrs = Math.max(0, (end - start) / 3600000);  // <-- ADD Math.max(0, ...)
+                   return sum + (hrs * (log.profiles?.daily_rate / 10 || 0));
+               }, 0);
+});
 
             const presentCount = logs.filter(l => !l.check_out).length;
             const closedCount = new Set(logs.filter(l => l.check_out).map(l => l.employee_id)).size;
@@ -444,31 +444,37 @@
               return () => clearInterval(timer);
             }, [view, adminTab]);
 
-            // --- AUTO-CHECKOUT ENGINE ---
+            // --- TIMEZONE-FIXED AUTO-CHECKOUT ---
 useEffect(() => {
     const runAutoCheck = async () => {
-        const now = new Date();
+        const now = new Date(); // Local time
         const liveShifts = logs.filter(l => !l.check_out);
         
         for (const shift of liveShifts) {
             const prof = profiles.find(p => p.id === shift.employee_id);
             if (!prof || !prof.shift_end) continue;
             
+            // Convert check_in to LOCAL time (fix timezone issue)
             const checkIn = new Date(shift.check_in);
             const [endH, endM] = prof.shift_end.split(':').map(Number);
             
-            // Set checkout to their shift_end time on check-in date
+            // Create autoEnd in LOCAL time on same calendar day as checkIn
             let autoEnd = new Date(checkIn);
             autoEnd.setHours(endH, endM, 0, 0);
             
-            // If shift_end is before check-in time (overnight), push to next day
-            if (autoEnd <= checkIn) {
+            // If shift_end is 2 AM, it's always next day
+            // If shift_end is before check-in time, it's overnight
+            if (endH === 2 || autoEnd.getTime() <= checkIn.getTime()) {
                 autoEnd.setDate(autoEnd.getDate() + 1);
             }
             
-            // Auto-checkout time reached
+            // Debug log
+            console.log(`${prof.full_name}: CheckIn ${checkIn.toLocaleString()}, AutoEnd ${autoEnd.toLocaleString()}, Now ${now.toLocaleString()}`);
+            
             if (now >= autoEnd) {
-                await sb.from('attendance').update({ check_out: autoEnd.toISOString() }).eq('id', shift.id);
+                await sb.from('attendance')
+                    .update({ check_out: autoEnd.toISOString() })
+                    .eq('id', shift.id);
                 refreshData();
                 if(employee && employee.id === prof.id) setEmployee(null);
             }
@@ -980,7 +986,7 @@ const isRestaurantClosed = () => {
                                 const profile = profiles.find(p => p.id === log.employee_id);
                                 const start = new Date(log.check_in);
                                 const end = log.check_out ? new Date(log.check_out) : null;
-                                const duration = end ? ((end - start) / 3600000).toFixed(2) : 'LIVE';
+                                const duration = end ? Math.max(0, (end - start) / 3600000).toFixed(2) : 'LIVE';
                                 const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : '0.00';
                                 
                                 return `
@@ -1021,7 +1027,7 @@ const isRestaurantClosed = () => {
                                 const profile = profiles.find(p => p.id === log.employee_id);
                                 const start = new Date(log.check_in);
                                 const end = log.check_out ? new Date(log.check_out) : null;
-                                const hours = end ? ((end - start) / 3600000).toFixed(2) : ((Date.now() - start) / 3600000).toFixed(2);
+                                const hours = end ? Math.max(0, (end - start) / 3600000).toFixed(2) : Math.max(0, (Date.now() - start) / 3600000).toFixed(2);
                                 const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : 
                                     (((Date.now() - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2);
                                 
@@ -1043,19 +1049,35 @@ const isRestaurantClosed = () => {
             };
 
             const filteredArchives = useMemo(() => {
-                return logs.filter(l => 
-                    l.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) || 
-                    l.profiles?.display_id?.includes(search)
-                ).map(log => {
-                    const start = new Date(log.check_in).getTime();
-                    const end = log.check_out ? new Date(log.check_out).getTime() : currentTime;
-                    const diff = Math.max(0, Math.floor((end - start) / 1000));
-                    const earned = ((diff / 36000) * (log.profiles?.daily_rate || 0)).toFixed(2);
-                    return { ...log, diff, earned };
-                });
-            }, [logs, search, currentTime]);
+    return logs.filter(l => 
+        l.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) || 
+        l.profiles?.display_id?.includes(search)
+    ).map(log => {
+        const start = new Date(log.check_in).getTime();
+        let end = log.check_out ? new Date(log.check_out).getTime() : currentTime;
+        
+        // GUARD: If end is before start, something is wrong
+        if (end < start) {
+            console.error(`Negative duration detected: ${log.profiles?.full_name}`, {
+                checkIn: log.check_in,
+                checkOut: log.check_out
+            });
+            end = start; // Prevent negative
+        }
+        
+        const diff = Math.floor((end - start) / 1000);
+        const earned = ((diff / 36000) * (log.profiles?.daily_rate || 0)).toFixed(2);
+        return { ...log, diff, earned };
+    });
+}, [logs, search, currentTime]);
 
-            const toLocalISO = (iso) => iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+            const toLocalISO = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    // Use the date's own timezone offset, not current time's offset
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+};
 
             return (
                 <div className="h-screen flex flex-col overflow-hidden bg-[#f8fafc]">
