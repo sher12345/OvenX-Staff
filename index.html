@@ -419,6 +419,7 @@
             
             const [profiles, setProfiles] = useState([]);
             const [logs, setLogs] = useState([]);
+            const [recentEdits, setRecentEdits] = useState({});
             const [currentTime, setCurrentTime] = useState(Date.now());
             
             // Modal States
@@ -451,6 +452,13 @@ useEffect(() => {
         const liveShifts = logs.filter(l => !l.check_out);
         
         for (const shift of liveShifts) {
+            // Skip if this shift was recently manually edited (within last 30 seconds)
+            const recentEditTime = recentEdits[shift.id];
+            if (recentEditTime && (now - new Date(recentEditTime)) < 30000) {
+                console.log(`Skipping auto-checkout for shift ${shift.id} - recent manual edit`);
+                continue;
+            }
+            
             const prof = profiles.find(p => p.id === shift.employee_id);
             if (!prof || !prof.shift_end) continue;
             
@@ -482,7 +490,7 @@ useEffect(() => {
     };
     
     if (new Date(currentTime).getSeconds() === 0) runAutoCheck();
-}, [currentTime, logs, profiles]);
+}, [currentTime, logs, profiles, recentEdits]);
 
 // --- CHECK IF RESTAURANT IS CLOSED (2 AM - 10 AM) ---
 const isRestaurantClosed = () => {
@@ -1643,16 +1651,75 @@ const isRestaurantClosed = () => {
                             <div className="glass-bubble p-12 rounded-[4rem] w-full max-w-lg shadow-2xl">
                                 <h3 className="text-3xl font-black mb-10 text-[#8b0000] uppercase tracking-tighter">Override Shift</h3>
                                 <div className="space-y-10 text-left font-black uppercase">
-                                    <div className="space-y-2"><label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-In Timestamp</label><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={toLocalISO(editLog.check_in)} onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} /></div>
-                                    <div className="space-y-2 font-black"><div className="flex justify-between items-center"><label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-Out Timestamp</label>{editLog.check_out && <button onClick={() => setEditLog({...editLog, check_out: null})} className="text-[9px] text-red-500 uppercase font-black underline">Return to Live</button>}</div><input type="datetime-local" className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} /></div>
-                                    <div className="flex gap-6 pt-6 font-black"><button onClick={()=>setEditLog(null)} className="flex-1 text-slate-400 uppercase text-xs">Discard</button><button onClick={async ()=>{await sb.from('attendance').update({check_in: editLog.check_in, check_out: editLog.check_out}).eq('id', editLog.id); setEditLog(null); refreshData(); playSfx('success');}} className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]">Update Record</button></div>
+                                    
+                                    {/* Clock-In Input */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-In Timestamp</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" 
+                                            value={toLocalISO(editLog.check_in)} 
+                                            onChange={e=>setEditLog({...editLog, check_in: new Date(e.target.value).toISOString()})} 
+                                        />
+                                    </div>
+                                    
+                                    {/* Clock-Out Input */}
+                                    <div className="space-y-2 font-black">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-[9px] ml-4 text-slate-400 uppercase">Clock-Out Timestamp</label>
+                                            {editLog.check_out && (
+                                                <button 
+                                                    onClick={() => setEditLog({...editLog, check_out: null})} 
+                                                    className="text-[9px] text-red-500 uppercase font-black underline"
+                                                >
+                                                    Return to Live
+                                                </button>
+                                            )}
+                                        </div>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full p-6 bg-slate-50 border-2 rounded-[2rem] outline-none font-black" 
+                                            value={editLog.check_out ? toLocalISO(editLog.check_out) : ''} 
+                                            onChange={e=>setEditLog({...editLog, check_out: e.target.value ? new Date(e.target.value).toISOString() : null})} 
+                                        />
+                                    </div>
+                                    
+                                    {/* Buttons Container - Fixed with flex gap */}
+                                    <div className="flex gap-6 pt-6 font-black">
+                                        <button 
+                                            onClick={()=>setEditLog(null)} 
+                                            className="flex-1 text-slate-400 uppercase text-xs"
+                                        >
+                                            Discard
+                                        </button>
+                                        <button 
+                                            onClick={async ()=>{
+                                                await sb.from('attendance').update({
+                                                    check_in: editLog.check_in, 
+                                                    check_out: editLog.check_out
+                                                }).eq('id', editLog.id);
+                                                
+                                                // Mark this shift as recently edited to prevent auto-checkout from overriding it
+                                                setRecentEdits(prev => ({...prev, [editLog.id]: new Date().toISOString()}));
+                                                
+                                                setEditLog(null); 
+                                                refreshData(); 
+                                                playSfx('success');
+                                            }} 
+                                            className="flex-1 py-6 bg-indigo-600 text-white font-black rounded-[2.5rem] btn-3d uppercase text-xs shadow-[0_6px_0px_#3730a3]"
+                                        >
+                                            Update Record
+                                        </button>
+                                    </div>
+                                    
                                 </div>
                             </div>
                         </div>
                     )}
+
                 </div>
-            );
-        };
+            )
+        }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
