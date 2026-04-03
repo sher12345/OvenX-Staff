@@ -599,16 +599,21 @@
                         const prof = profilesRef.current.find(p => p.id === shift.employee_id);
                         if (!prof?.shift_end) continue;
 
-                        const checkIn = new Date(shift.check_in);
-                        const [endH, endM] = prof.shift_end.split(':').map(Number);
+                       const checkIn = new Date(shift.check_in);
+const [endH, endM] = prof.shift_end.split(':').map(Number);
 
-                        let autoEnd = new Date(checkIn);
-                        autoEnd.setHours(endH, endM, 0, 0);
+// Use local date components to avoid UTC+5 offset bug
+let autoEnd = new Date(
+    checkIn.getFullYear(),
+    checkIn.getMonth(),
+    checkIn.getDate(),
+    endH, endM, 0, 0
+);
 
-                        // If shift_end (2am) is before or equal to check_in time, it's next day
-                        if (autoEnd.getTime() <= checkIn.getTime()) {
-                            autoEnd.setDate(autoEnd.getDate() + 1);
-                        }
+// If shift_end (2am) is before or equal to check_in local time, roll to next day
+if (autoEnd.getTime() <= checkIn.getTime()) {
+    autoEnd.setDate(autoEnd.getDate() + 1);
+}
 
                         if (now >= autoEnd) {
                             const { error } = await sb.from('attendance')
