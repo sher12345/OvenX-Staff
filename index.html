@@ -942,24 +942,39 @@ if (autoEnd.getTime() <= checkIn.getTime()) {
                 worksheets.push({ name: 'Summary', html: generateSummaryTable(summaryRows, rangeLabel, startPoint, endPoint) });
                 if (absenteesData.length > 0) worksheets.push({ name: 'ABSENTEES', html: generateAbsenteesTable(absenteesData, rangeLabel, startPoint, endPoint) });
 
-                if (dateMode === 'custom') {
-                    const dayCount = Math.ceil((endPoint - startPoint) / (1000 * 60 * 60 * 24)) + 1;
-                    if (dayCount <= 31) {
-                        for (let d = 0; d < dayCount; d++) {
-                            const dayStart = new Date(startPoint); dayStart.setDate(dayStart.getDate() + d); dayStart.setHours(0, 0, 0, 0);
-                            const dayEnd = new Date(dayStart); dayEnd.setHours(23, 59, 59, 999);
-                            const dayLogs = logs.filter(l => { const ci = new Date(l.check_in); return ci >= dayStart && ci <= dayEnd; });
-                            if (dayLogs.length > 0) {
-                                const dayName = dayStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                                worksheets.push({ name: dayName, html: generateDailyTable(dayLogs, dayName, dayStart, profiles) });
-                            }
-                        }
-                    }
-                } else {
-                    worksheets.push({ name: 'All_Shifts', html: generateAllTimeTable(rangeLogs, scope, profiles) });
+                // FIX: Generate daily sheets for ALL modes (day, week, month, custom)
+                // Calculate day count based on the actual date range
+                const dayCount = Math.ceil((endPoint - startPoint) / (1000 * 60 * 60 * 24));
+                
+                // Generate daily sheets for all days in the range (up to 31 days to prevent huge files)
+                const maxDays = 31;
+                const daysToGenerate = Math.min(dayCount, maxDays);
+                
+                for (let d = 0; d < daysToGenerate; d++) {
+                    // Create date for this day starting from startPoint
+                    const dayStart = new Date(startPoint);
+                    dayStart.setDate(dayStart.getDate() + d);
+                    dayStart.setHours(0, 0, 0, 0);
+                    
+                    const dayEnd = new Date(dayStart);
+                    dayEnd.setHours(23, 59, 59, 999);
+                    
+                    // Get all logs for this specific day
+                    const dayLogs = logs.filter(l => {
+                        const checkIn = new Date(l.check_in);
+                        // Include if check-in falls within this day
+                        return checkIn >= dayStart && checkIn <= dayEnd;
+                    });
+                    
+                    // Always create a daily sheet, even if empty (shows "No Records" message)
+                    const dayName = dayStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
+                    worksheets.push({ 
+                        name: dayName, 
+                        html: generateDailyTable(dayLogs, dayName, dayStart, profiles) 
+                    });
                 }
 
-                const finalHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><style>table{border-collapse:collapse;width:100%}th{background:#8b0000;color:white;border:1px solid #000;padding:12px;font-weight:bold;font-size:11px;text-align:center}td{border:1px solid #ccc;padding:10px;font-size:11px}.header{font-size:18px;font-weight:bold;text-align:center;color:#8b0000;margin-bottom:10px}.subheader{font-size:12px;text-align:center;color:#666;margin-bottom:20px}.money{font-weight:bold;color:#f37021}.present{background-color:#dcfce7}.closed{background-color:#e0f2fe}.absent{background-color:#fee2e2;color:#991b1b}</style></head><body>${worksheets.map((ws, idx) => `<h2 style="color:#8b0000;font-size:20px;margin-top:30px">${ws.name}</h2>${ws.html}${idx < worksheets.length - 1 ? '<div style="page-break-after:always"></div>' : ''}`).join('')}</body></html>`;
+                const finalHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><style>table{border-collapse:collapse;width:100%}th{background:#8b0000;color:white;border:1px solid #000;padding:12px;font-weight:bold;font-size:11px;text-align:center}td{border:1px solid #ccc;padding:10px;font-size:11px}.header{font-size:18px;font-weight:bold;text-align:center;color:#8b0000;margin-bottom:10px}.subheader{font-size:12px;text-align:center;color:#666;margin-bottom:20px}.money{font-weight:bold;color:#f37021}.present{background-color:#dcfce7}.closed{background-color:#e0f2fe}.absent{background-color:#fee2e2;color:#991b1b}.no-data{background-color:#f8fafc;color:#94a3b8;text-align:center;padding:40px}</style></head><body>${worksheets.map((ws, idx) => `<h2 style="color:#8b0000;font-size:20px;margin-top:30px">${ws.name}</h2>${ws.html}${idx < worksheets.length - 1 ? '<div style="page-break-after:always"></div>' : ''}`).join('')}</body></html>`;
 
                 const blob = new Blob([finalHtml], { type: 'application/vnd.ms-excel' });
                 const a = document.createElement('a');
@@ -979,12 +994,39 @@ if (autoEnd.getTime() <= checkIn.getTime()) {
                 return `<div class="header" style="color:#dc2626">⚠️ ABSENTEE REPORT - ${rangeLabel}</div><div class="subheader">Period: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}</div><table><thead><tr style="background:#dc2626"><th>#</th><th>Employee Name</th><th>Staff ID</th><th>Scheduled Shift</th><th>Status</th></tr></thead><tbody>${absentees.map((s, i) => `<tr class="absent"><td>${i+1}</td><td>${s.full_name}</td><td>${s.display_id}</td><td>${s.shift_start||'N/A'} - ${s.shift_end||'N/A'}</td><td>ABSENT</td></tr>`).join('')}</tbody><tfoot><tr style="background:#dc2626;color:white;font-weight:bold"><td colspan="5" style="text-align:center">TOTAL ABSENT: ${absentees.length}</td></tr></tfoot></table>`;
             };
 
+            // FIX: Improved daily table generation with better empty state handling
             const generateDailyTable = (dayLogs, dayName, dayDate, profiles) => {
-                return `<div class="header">Daily Detail - ${dayName}</div><div class="subheader">${dayDate.toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div><table><thead><tr><th>Employee</th><th>Check-In</th><th>Check-Out</th><th>Duration</th><th>Uniform</th><th>Earnings (PKR)</th></tr></thead><tbody>${dayLogs.map(log => { const profile=profiles.find(p=>p.id===log.employee_id); const start=new Date(log.check_in); const end=log.check_out?new Date(log.check_out):null; const duration=end?Math.max(0,(end-start)/3600000).toFixed(2):'LIVE'; const earnings=end?(((end-start)/36000000)*(profile?.daily_rate||0)).toFixed(2):'0.00'; return `<tr><td>${profile?.full_name||'Unknown'}</td><td>${start.toLocaleTimeString()}</td><td>${end?end.toLocaleTimeString():'LIVE'}</td><td>${duration}h</td><td>${log.uniform?'ON':'OFF'}</td><td class="money">Rs. ${parseFloat(earnings).toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>`; }).join('')}</tbody></table>`;
+                const dateStr = dayDate.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                
+                if (!dayLogs || dayLogs.length === 0) {
+                    return `<div class="header">Daily Detail - ${dayName}</div><div class="subheader">${dateStr}</div><div class="no-data">No attendance records for this day</div>`;
+                }
+                
+                // Sort logs by check-in time
+                const sortedLogs = [...dayLogs].sort((a, b) => new Date(a.check_in) - new Date(b.check_in));
+                
+                return `<div class="header">Daily Detail - ${dayName}</div><div class="subheader">${dateStr}</div><table><thead><tr><th>Employee</th><th>Check-In</th><th>Check-Out</th><th>Duration</th><th>Uniform</th><th>Earnings (PKR)</th></tr></thead><tbody>${sortedLogs.map(log => { 
+                    const profile = profiles.find(p => p.id === log.employee_id); 
+                    const start = new Date(log.check_in); 
+                    const end = log.check_out ? new Date(log.check_out) : null; 
+                    const duration = end ? Math.max(0, (end - start) / 3600000).toFixed(2) : 'LIVE'; 
+                    const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : '0.00'; 
+                    const statusClass = end ? 'closed' : 'present';
+                    return `<tr class="${statusClass}"><td><strong>${profile?.full_name || 'Unknown'}</strong><br><small style="color:#666">ID: ${profile?.display_id || 'N/A'}</small></td><td>${start.toLocaleTimeString()}</td><td>${end ? end.toLocaleTimeString() : '<span style="color:#10b981;font-weight:bold">LIVE</span>'}</td><td>${duration}h</td><td>${log.uniform ? '<span style="color:#10b981">✓ ON</span>' : '<span style="color:#ef4444">✗ OFF</span>'}</td><td class="money">Rs. ${parseFloat(earnings).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>`; 
+                }).join('')}</tbody><tfoot><tr style="background:#f37021;color:white;font-weight:bold"><td colspan="3" style="text-align:right">Daily Totals:</td><td>${sortedLogs.reduce((sum, log) => {
+                    const start = new Date(log.check_in);
+                    const end = log.check_out ? new Date(log.check_out) : new Date();
+                    return sum + Math.max(0, (end - start) / 3600000);
+                }, 0).toFixed(2)}h</td><td></td><td>Rs. ${sortedLogs.reduce((sum, log) => {
+                    const profile = profiles.find(p => p.id === log.employee_id);
+                    const start = new Date(log.check_in);
+                    const end = log.check_out ? new Date(log.check_out) : new Date();
+                    return sum + (Math.max(0, (end - start) / 36000000) * (profile?.daily_rate || 0));
+                }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr></tfoot></table>`;
             };
 
             const generateAllTimeTable = (logs, scope, profiles) => {
-                return `<div class="header">Complete Shift Records - ${scope.toUpperCase()} View</div><table><thead><tr><th>Date</th><th>Employee</th><th>Check-In</th><th>Check-Out</th><th>Hours</th><th>Status</th><th>Earnings (PKR)</th></tr></thead><tbody>${logs.map(log => { const profile=profiles.find(p=>p.id===log.employee_id); const start=new Date(log.check_in); const end=log.check_out?new Date(log.check_out):null; const hours=end?Math.max(0,(end-start)/3600000).toFixed(2):Math.max(0,(Date.now()-start)/3600000).toFixed(2); const earnings=end?((( end-start)/36000000)*(profile?.daily_rate||0)).toFixed(2):(((Date.now()-start)/36000000)*(profile?.daily_rate||0)).toFixed(2); return `<tr><td>${start.toLocaleDateString()}</td><td>${profile?.full_name||'Unknown'}</td><td>${start.toLocaleTimeString()}</td><td>${end?end.toLocaleTimeString():'ONGOING'}</td><td>${hours}h</td><td>${end?'CLOSED':'LIVE'}</td><td class="money">Rs. ${parseFloat(earnings).toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>`; }).join('')}</tbody></table>`;
+                return `<div class="header">Complete Shift Records - ${scope.toUpperCase()} View</div><table><thead><tr><th>Date</th><th>Employee</th><th>Check-In</th><th>Check-Out</th><th>Hours</th><th>Status</th><th>Earnings (PKR)</th></tr></thead><tbody>${logs.map(log => { const profile = profiles.find(p => p.id === log.employee_id); const start = new Date(log.check_in); const end = log.check_out ? new Date(log.check_out) : null; const hours = end ? Math.max(0, (end - start) / 3600000).toFixed(2) : Math.max(0, (Date.now() - start) / 3600000).toFixed(2); const earnings = end ? (((end - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2) : (((Date.now() - start) / 36000000) * (profile?.daily_rate || 0)).toFixed(2); return `<tr><td>${start.toLocaleDateString()}</td><td>${profile?.full_name || 'Unknown'}</td><td>${start.toLocaleTimeString()}</td><td>${end ? end.toLocaleTimeString() : 'ONGOING'}</td><td>${hours}h</td><td>${end ? 'CLOSED' : 'LIVE'}</td><td class="money">Rs. ${parseFloat(earnings).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>`; }).join('')}</tbody></table>`;
             };
 
             const filteredArchives = useMemo(() => {
@@ -1085,7 +1127,7 @@ if (autoEnd.getTime() <= checkIn.getTime()) {
                                                 {/* FIX: PIN display with shake + red error state */}
                                                 <div className="relative z-10 mb-8">
                                                     <div className={`border-2 rounded-3xl p-6 shadow-[inset_0_4px_20px_rgba(0,0,0,0.05),0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-200 ${pinError ? 'bg-red-50 border-red-400 pin-shake' : 'bg-gradient-to-b from-slate-50 to-white border-slate-100'}`}>
-                                                        <div className="flex justify-center items-center gap-4 h-12">
+                                                                                                                <div className="flex justify-center items-center gap-4 h-12">
                                                             {[0,1,2,3].map((i) => (
                                                                 <div key={i} className="w-12 h-12 flex items-center justify-center">
                                                                     {pin.length > i ? (
